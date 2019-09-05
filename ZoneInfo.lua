@@ -21,9 +21,9 @@ do
 end
 
 -- Localized Zone Names
-local BZ = {}
 local zones = {}
 local instances = {}
+local raids = {}
 
 local Azeroth = "Azeroth"
 local Kalimdor = "Kalimdor"
@@ -90,7 +90,7 @@ function ZoneInfoDataProviderMixin:OnAdded(mapCanvas)
         local font, size = WorldMapTextFont:GetFont()
         self.InfoText:SetFont(font, size, "OUTLINE")
 
-        -- Attach the infotext to the topleft of the frame and scale to 0.5.
+        -- Attach the infotext to the bottom left of the frame and scale to 0.5.
         self.InfoText:SetPoint("BOTTOMLEFT", self.Frame, "BOTTOMLEFT", 0, 0)
         self.InfoText:SetScale(0.4)
         self.InfoText:SetJustifyH("LEFT")
@@ -98,7 +98,7 @@ function ZoneInfoDataProviderMixin:OnAdded(mapCanvas)
         self.Frame:SetParent(self:GetMap():GetCanvasContainer())
     end
 
-    -- Put the frame in the topleft of the world map
+    -- Put the frame in the bottom left of the world map
     self.Frame:SetPoint(
         "BOTTOMLEFT",
         self:GetMap():GetCanvasContainer(),
@@ -164,19 +164,30 @@ function ZoneInfo:GetZoneInfo()
     local zone = mapID
 
     if mapInfo.mapID == WORLDMAP_AZEROTH_ID then
+
         if mapInfo.mapType == WORLDMAP_CONTINENT then
             return nil
         end
+
     else
         if mapInfo.mapType == WORLDMAP_ZONE then
-            zoneText = "Level:"..tostring(zones[mapName].low).."-"..tostring(zones[mapName].high)
+            zoneText = ("Zone Level: %s - %s\n"):format(zones[mapName].low, zones[mapName].high)
+
             -- Do work to get zone name, level, faction, and any instances.
             if zones[mapName].instances then
                 for _, instance in ipairs(zones[mapName].instances) do
-                    zoneText = zoneText .."\n"..instance
+                    zoneText = zoneText ..("\n%s %s - %s"):format(instance, instances[instance].low, instances[instance].high)
                 end
             end
+
+            if zones[mapName].raids then
+                for _, raid in ipairs(zones[mapName].raids) do
+                    zoneText = zoneText ..("\n%s %s   %s-Man"):format(raid ,raids[raid].high, raids[raid].players)
+                end
+            end
+
             return zoneText
+
         end
     end
 end
@@ -368,6 +379,7 @@ zones["Desolace"] = {
     low = 30,
     high = 39,
     continent = Kalimdor,
+    instances = {"Maraudon"},
     faction = "Contested",
 }
 
@@ -397,6 +409,7 @@ zones["Stranglethorn Vale"] = {
     low = 30,
     high = 50,
     continent = Eastern_Kingdoms,
+    raids = {"Zul'Gurub"},
     faction = "Contested",
 }
 
@@ -412,7 +425,7 @@ zones["Dustwallow Marsh"] = {
     low = 33,
     high = 50,
     continent = Kalimdor,
-    instances = {"Zul'Farrak"},
+    raids = {"Onyxia's Lair"},
     faction = "Contested",
 }
 
@@ -451,6 +464,7 @@ zones["Burning Steppes"] = {
     high = 59,
     continent = Eastern_Kingdoms,
     instances = {"Blackrock Depths", "Blackrock Spire"},
+    raids = {"Molten Core", "Blackwing Lair"},
     faction = "Contested",
 }
 
@@ -466,6 +480,7 @@ zones["Searing Gorge"] = {
     high = 56,
     continent = Eastern_Kingdoms,
     instances = {"Blackrock Depths", "Blackrock Spire"},
+    raids = {"Molten Core", "Blackwing Lair"},
     faction = "Contested",
 }
 
@@ -495,6 +510,7 @@ zones["Eastern Plaguelands"] = {
     high = 59,
     continent = Eastern_Kingdoms,
     instances = {"Stratholme"},
+    raids = {"Naxxramas"},
     faction = "Contested",
 }
 
@@ -509,6 +525,7 @@ zones["Silithus"] = {
     low = 55,
     high = 59,
     continent = Kalimdor,
+    raids = {"Ruins of Ahn'Qiraj", "Ahn'Qiraj"},
     faction = "Contested",
 }
 
@@ -563,4 +580,193 @@ instances["Ragefire Chasm"] = {
     low = 13,
     high = 22,
     continent = Kalimdor,
+}
+
+instances["The Deadmines"] = {
+    low = 15,
+    high = 28,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Wailing Caverns"] = {
+    low = 15,
+    high = 28,
+    continent = Kalimdor,
+}
+
+instances["Shadowfang Keep"] = {
+    low = 18,
+    high = 32,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Blackfathom Deeps"] = {
+    low = 20,
+    high = 35,
+    continent = Kalimdor,
+}
+
+instances["The Stockade"] = {
+    low = 22,
+    high = 30,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Gnomeregan"] = {
+    low = 24,
+    high = 40,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Razorfen Kraul"] = {
+    low = 24,
+    high = 40,
+    continent = Kalimdor,
+}
+
+instances["Scarlet Monastery: Graveyard"] = {
+    low = 26,
+    high = 36,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Scarlet Monastery: Library"] = {
+    low = 29,
+    high = 39,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Scarlet Monastery: Armory"] = {
+    low = 32,
+    high = 42,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Scarlet Monastery: Cathedral"] = {
+    low = 35,
+    high = 45,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Razorfen Downs"] = {
+    low = 33,
+    high = 47,
+    continent = Kalimdor,
+}
+
+instances["Uldaman"] = {
+    low = 35,
+    high = 52,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Maraudon"] = {
+    low = 35,
+    high = 52,
+    continent = Kalimdor,
+}
+
+instances["Zul'Farrak"] = {
+    low = 43,
+    high = 54,
+    continent = Kalimdor,
+}
+
+instances["The Temple of Atal'Hakkar"] = {
+    low = 44,
+    high = 60,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Blackrock Depths"] = {
+    low = 48,
+    high = 60,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Blackrock Spire"] = {
+    low = 52,
+    high = 60,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Stratholme"] = {
+    low = 56,
+    high = 60,
+    continent = Eastern_Kingdoms,
+}
+
+instances["Dire Maul: East"] = {
+    low = 36,
+    high = 46,
+    continent = Kalimdor,
+}
+
+instances["Dire Maul: West"] = {
+    low = 39,
+    high = 49,
+    continent = Kalimdor,
+}
+
+instances["Dire Maul: North"] = {
+    low = 42,
+    high = 52,
+    continent = Kalimdor,
+}
+
+instances["Scholomance"] = {
+    low = 56,
+    high = 60,
+    continent = Eastern_Kingdoms,
+}
+
+-- Raid definition
+
+raids["Molten Core"] = {
+    low = 55,
+    high = 60,
+    players = 40,
+    continent = Eastern_Kingdoms,
+}
+
+raids["Onyxia's Lair"] = {
+    low = 55,
+    high = 60,
+    players = 40,
+    continent = Kalimdor,
+}
+
+raids["Blackwing Lair"] = {
+    low = 60,
+    high = 60,
+    players = 40,
+    continent = Eastern_Kingdoms,
+}
+
+raids["Zul'Gurub"] = {
+    low = 60,
+    high = 60,
+    players = 40,
+    continent = Eastern_Kingdoms,
+}
+
+raids["Ruins of Ahn'Qiraj"] = {
+    low = 60,
+    high = 60,
+    players = 20,
+    continent = Kalimdor,
+}
+
+raids["Ahn'Qiraj"] = {
+    low = 60,
+    high = 60,
+    players = 40,
+    continent = Kalimdor,
+}
+
+raids["Naxxramas"] = {
+    low = 60,
+    high = 60,
+    players = 40,
+    continent = Eastern_Kingdoms,
 }
