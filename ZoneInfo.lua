@@ -92,17 +92,17 @@ function ZoneInfoDataProviderMixin:OnAdded(mapCanvas)
         local font, size = WorldMapTextFont:GetFont()
         self.InfoText:SetFont(font, size, "OUTLINE")
 
-        -- Attach the infotext to the bottom left of the frame and scale to 0.5.
-        self.InfoText:SetPoint("BOTTOMLEFT", self.Frame, "BOTTOMLEFT", 0, 0)
+        -- Attach the infotext to the top of the frame and scale to 0.4.
+        self.InfoText:SetPoint("TOP", self.Frame, "TOP", 0, -35)
         self.InfoText:SetScale(0.4)
-        self.InfoText:SetJustifyH("LEFT")
+        self.InfoText:SetJustifyH("CENTER")
     else
         self.Frame:SetParent(self:GetMap():GetCanvasContainer())
     end
 
-    -- Put the frame in the bottom left of the world map
+    -- Put the frame in the top of the world map
     self.Frame:SetPoint(
-        "BOTTOMLEFT",
+        "TOP",
         self:GetMap():GetCanvasContainer(),
         10,
         10
@@ -175,10 +175,11 @@ function ZoneInfo:GetZoneInfo()
         if mapInfo.mapType == WORLDMAP_ZONE then
             local r2, g2, b2 = ZoneInfo:LevelColor(zones[mapName].low, zones[mapName].high, playerLevel)
             local r1, g1, b1 = ZoneInfo:GetFactionColor(mapName)
-            zoneText = ("|cff%02x%02x%02xZone Level:|r |cff%02x%02x%02x[%d-%d]|r\n"):format(
-                r1*255, 
-                g1*255, 
+            zoneText = ("|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r\n\n"):format(
+                r1*255,
+                g1*255,
                 b1*255,
+                mapName,
                 r2*255,
                 g2*255,
                 b2*255,
