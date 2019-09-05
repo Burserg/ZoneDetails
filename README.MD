@@ -7,6 +7,13 @@ This addon is designed for WoW Classic.
 * [x] Instance levels
 * [x] Raid info
 * [ ] Entrance pins on map
-* [ ] Colorize Zones based on level vs player level
-* [ ] Colorize Instances based on player level
+* [x] Colorize Zones based on level vs player level
+* [x] Colorize Instances based on player level
 * [ ] Add Battleground information where applicable
+* [ ] Add Localization support
+* [ ] Nodes available in given zone for Herbalism and Mining 
+* [ ] Add options page
+    * [ ] Toggles for pins
+    * [ ] Color customizations
+    * [ ] Color Toggle
+    * [ ] Profession Toggles

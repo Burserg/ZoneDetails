@@ -11,8 +11,10 @@ local ZoneInfoDataProviderMixin = CreateFromMixins(MapCanvasDataProviderMixin)
 local WORLDMAP_CONTINENT = Enum.UIMapType.Continent
 local WORLDMAP_ZONE = Enum.UIMapType.Zone
 local WORLDMAP_AZEROTH_ID = 947
+local playerLevel =  UnitLevel("player")
 
 local isAlliance, isHorde, isNeutral
+
 do
 	local faction = UnitFactionGroup("player")
 	isAlliance = faction == "Alliance"
@@ -143,6 +145,7 @@ function ZoneInfo:OnInitialize()
     -- Called when the addon is loaded
     LibStub("AceConfig-3.0"):RegisterOptionsTable("ZoneInfo", options, {"zoneinfo", "zi"})
     self:RegisterEvent("ZONE_CHANGED")
+    self:RegisterEvent('PLAYER_LEVEL_CHANGED')
 end
 
 
@@ -156,8 +159,7 @@ end
 
 function ZoneInfo:GetZoneInfo()
     local zoneText
-     -- Set the text to white and hide the zone info if we're on the Azeroth
-    -- continent map.
+     -- Set the text to white and hide the zone info if we're on the Azeroth continent map.
     local mapID = WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
     local mapName = mapInfo.name
@@ -172,17 +174,40 @@ function ZoneInfo:GetZoneInfo()
     else
         if mapInfo.mapType == WORLDMAP_ZONE then
             zoneText = ("Zone Level: %s - %s\n"):format(zones[mapName].low, zones[mapName].high)
-
-            -- Do work to get zone name, level, faction, and any instances.
+            -- Do work to get zone name, level, faction, and any instances/raids.
             if zones[mapName].instances then
+                zoneText = zoneText..("\n|cffffff00%s:|r"):format("Instances")
                 for _, instance in ipairs(zones[mapName].instances) do
-                    zoneText = zoneText ..("\n%s %s - %s"):format(instance, instances[instance].low, instances[instance].high)
+                    local r2, g2, b2 = ZoneInfo:LevelColor(instances[instance].low, instances[instance].high, playerLevel)
+                    local r1, g1, b1 = ZoneInfo:GetFactionColor(mapName)
+                    zoneText = zoneText..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
+                        r1*255, 
+                        g1*255, 
+                        b1*255, 
+                        instance,
+                        r2*255,
+                        g2*255,
+                        b2*255,
+                        instances[instance].low, 
+                        instances[instance].high
+                    )
                 end
             end
 
             if zones[mapName].raids then
                 for _, raid in ipairs(zones[mapName].raids) do
-                    zoneText = zoneText ..("\n%s %s   %s-Man"):format(raid ,raids[raid].high, raids[raid].players)
+                    local r2, g2, b2 = ZoneInfo:LevelColor(raids[raid].low, raids[raid].high, playerLevel)
+                    local r1, g1, b1 = ZoneInfo:GetFactionColor(mapName)
+                    zoneText = zoneText ..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d]|r   %s-Man"):format(
+                        r1*255,
+                        g1*255,
+                        b2*255,
+                        raid,
+                        r2*255,
+                        g2*255,
+                        b2*255,                        
+                        raids[raid].high,
+                        raids[raid].players)
                 end
             end
 
@@ -218,9 +243,87 @@ function ZoneInfo:ZONE_CHANGED()
     end
 end
 
+function ZoneInfo:PLAYER_LEVEL_CHANGED(oldLevel, newLevel)
+    playerLevel = newLevel
+end
 
+-- Pulled from LibTourist
+-- Returns an r, g and b value representing a color, depending on the given zone and the current character's faction.
+function ZoneInfo:GetFactionColor(zone)
+	zone = zones[zone]
 
+	if zone.faction == "Contested" then
+		-- Orange
+		return 1, 0.7, 0
+	elseif zone.faction == (isHorde and "Alliance" or "Horde") then
+		-- Red
+		return 1, 0, 0
+	elseif zone.faction == (isHorde and "Horde" or "Alliance") then
+		-- Green
+		return 0, 1, 0
+	else
+		-- Yellow
+		return 1, 1, 0
+	end
+end
 
+-- Pulled from LibTourist
+-- Returns an r, g and b value representing a color ranging from grey (too low) via 
+-- green, yellow and orange to red (too high) depending on the player level within 
+-- the given range. Returns white if no level is applicable, like in cities.	
+function ZoneInfo:LevelColor(low, high, currentLevel)
+	local midBracket = (low + high) / 2
+
+	if low <= 0 and high <= 0 then
+		-- City or level unknown -> White
+		return 1, 1, 1
+	elseif currentLevel == low and currentLevel == high then
+		-- Exact match, one-level bracket -> Yellow
+		return 1, 1, 0
+	elseif currentLevel <= low - 3 then
+		-- Player is three or more levels short of Low -> Red
+		return 1, 0, 0
+	elseif currentLevel < low then
+		-- Player is two or less levels short of Low -> sliding scale between Red and Orange
+		-- Green component goes from 0 to 0.5
+		local greenComponent = (currentLevel - low + 3) / 6
+		return 1, greenComponent, 0
+	elseif currentLevel == low then
+		-- Player is at low, at least two-level bracket -> Orange
+		return 1, 0.5, 0
+	elseif currentLevel < midBracket then
+		-- Player is between low and the middle of the bracket -> sliding scale between Orange and Yellow
+		-- Green component goes from 0.5 to 1
+		local halfBracketSize = (high - low) / 2
+		local posInBracketHalf = currentLevel - low
+		local greenComponent = 0.5 + (posInBracketHalf / halfBracketSize) * 0.5
+		return 1, greenComponent, 0
+	elseif currentLevel == midBracket then
+		-- Player is at the middle of the bracket -> Yellow
+		return 1, 1, 0
+	elseif currentLevel < high then
+		-- Player is between the middle of the bracket and High -> sliding scale between Yellow and Green
+		-- Red component goes from 1 to 0
+		local halfBracketSize = (high - low) / 2
+		local posInBracketHalf = currentLevel - midBracket
+		local redComponent = 1 - (posInBracketHalf / halfBracketSize)
+		return redComponent, 1, 0
+	elseif currentLevel == high then
+		-- Player is at High, at least two-level bracket -> Green
+		return 0, 1, 0
+	elseif currentLevel < high + 3 then
+		-- Player is up to three levels above High -> sliding scale between Green and Gray
+		-- Red and Blue components go from 0 to 0.5
+		-- Green component goes from 1 to 0.5
+		local pos = (currentLevel - high) / 3
+		local redAndBlueComponent = pos * 0.5
+		local greenComponent = 1 - redAndBlueComponent
+		return redAndBlueComponent, greenComponent, redAndBlueComponent
+	else
+		-- Player is at High + 3 or above -> Gray
+		return 0.5, 0.5, 0.5
+	end
+end
 
 -- Zone definition
 
