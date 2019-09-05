@@ -173,7 +173,18 @@ function ZoneInfo:GetZoneInfo()
 
     else
         if mapInfo.mapType == WORLDMAP_ZONE then
-            zoneText = ("Zone Level: %s - %s\n"):format(zones[mapName].low, zones[mapName].high)
+            local r2, g2, b2 = ZoneInfo:LevelColor(zones[mapName].low, zones[mapName].high, playerLevel)
+            local r1, g1, b1 = ZoneInfo:GetFactionColor(mapName)
+            zoneText = ("|cff%02x%02x%02xZone Level:|r |cff%02x%02x%02x[%d-%d]|r\n"):format(
+                r1*255, 
+                g1*255, 
+                b1*255,
+                r2*255,
+                g2*255,
+                b2*255,
+                zones[mapName].low,
+                 zones[mapName].high
+                )
             -- Do work to get zone name, level, faction, and any instances/raids.
             if zones[mapName].instances then
                 zoneText = zoneText..("\n|cffffff00%s:|r"):format("Instances")
@@ -207,7 +218,8 @@ function ZoneInfo:GetZoneInfo()
                         g2*255,
                         b2*255,                        
                         raids[raid].high,
-                        raids[raid].players)
+                        raids[raid].players
+                    )
                 end
             end
 
