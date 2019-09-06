@@ -1,8 +1,9 @@
 ## Interface: 11302
 ## Title: ZoneDetails
 ## Author: Burserg
-## Version: 0.5
+## Version: 0.6
 ## Notes: "Gotta start somewhere!"
+## OptionalDeps: LibStub, CallbackHandler-1.0
 ## X-Embeds: Ace3
 ## X-Category: Map
 ## X-License: All rights reserved.

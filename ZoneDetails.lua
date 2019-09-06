@@ -67,6 +67,10 @@ local options = {
     }
 }
 
+function dbg(msg)
+    DEFAULT_CHAT_FRAME:AddMessage(msg)
+end
+
 -- Use Blizzard MixIns function to add a new overlay to the Map Frane
 function ZoneDetailsDataProviderMixin:OnAdded(mapCanvas)
     MapCanvasDataProviderMixin.OnAdded(self, mapCanvas)
@@ -108,7 +112,7 @@ function ZoneDetailsDataProviderMixin:OnAdded(mapCanvas)
         10
     )
 
-    self.Frame:SetFrameStrata("HIGH")
+    self.Frame:SetFrameStrata("FULLSCREEN_DIALOG")
     self.Frame.dataProvider = self
 
     -- Ensure everything is shown
@@ -119,7 +123,6 @@ end
 -- When the map changes, update it with the current zone information
 function ZoneDetailsDataProviderMixin:RefreshAllData(fromOnShow)
     local info = ZoneDetails:GetZoneDetails()
-
     if info then
         self.InfoText:SetText(info)
     else
@@ -223,9 +226,8 @@ function ZoneDetails:GetZoneDetails()
                     )
                 end
             end
-
             return zoneText
-
+            
         end
     end
 end
