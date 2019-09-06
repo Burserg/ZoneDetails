@@ -1,13 +1,13 @@
 --[[
--- Credit to ckknight for originally writing Cartographer_ZoneInfo
+-- Credit to ckknight for originally writing Cartographer_ZoneDetails
 -- Credit to phyber for writing Cromulent
 --]]
 
-ZoneInfo = LibStub("AceAddon-3.0"):NewAddon("ZoneInfo", "AceConsole-3.0", "AceEvent-3.0")
-_ZoneInfo = {...}
+ZoneDetails = LibStub("AceAddon-3.0"):NewAddon("ZoneDetails", "AceConsole-3.0", "AceEvent-3.0")
+_ZoneDetails = {...}
 
 local AceGUI = LibStub("AceGUI-3.0")
-local ZoneInfoDataProviderMixin = CreateFromMixins(MapCanvasDataProviderMixin)
+local ZoneDetailsDataProviderMixin = CreateFromMixins(MapCanvasDataProviderMixin)
 local WORLDMAP_CONTINENT = Enum.UIMapType.Continent
 local WORLDMAP_ZONE = Enum.UIMapType.Zone
 local WORLDMAP_AZEROTH_ID = 947
@@ -39,8 +39,8 @@ local defaults = {
 }
 
 local options = {
-    name = "ZoneInfo",
-    handler = ZoneInfo,
+    name = "ZoneDetails",
+    handler = ZoneDetails,
     type = "group",
     args = {
         msg = {
@@ -68,7 +68,7 @@ local options = {
 }
 
 -- Use Blizzard MixIns function to add a new overlay to the Map Frane
-function ZoneInfoDataProviderMixin:OnAdded(mapCanvas)
+function ZoneDetailsDataProviderMixin:OnAdded(mapCanvas)
     MapCanvasDataProviderMixin.OnAdded(self, mapCanvas)
 
     if not self.Frame then
@@ -117,8 +117,8 @@ function ZoneInfoDataProviderMixin:OnAdded(mapCanvas)
 end
 
 -- When the map changes, update it with the current zone information
-function ZoneInfoDataProviderMixin:RefreshAllData(fromOnShow)
-    local info = ZoneInfo:GetZoneInfo()
+function ZoneDetailsDataProviderMixin:RefreshAllData(fromOnShow)
+    local info = ZoneDetails:GetZoneDetails()
 
     if info then
         self.InfoText:SetText(info)
@@ -128,36 +128,36 @@ function ZoneInfoDataProviderMixin:RefreshAllData(fromOnShow)
 end
 
 -- When the map is hidden, hide our frame.
-function ZoneInfoDataProviderMixin:RemoveAllData()
+function ZoneDetailsDataProviderMixin:RemoveAllData()
     self.Frame:Hide()
 end
 
-function ZoneInfo:OnEnable()
-    WorldMapFrame:AddDataProvider(ZoneInfoDataProviderMixin)
+function ZoneDetails:OnEnable()
+    WorldMapFrame:AddDataProvider(ZoneDetailsDataProviderMixin)
 end
 
-function ZoneInfo:OnDisable()
-    WorldMapFrame:RemoveDataProvider(ZoneInfoDataProviderMixin)
+function ZoneDetails:OnDisable()
+    WorldMapFrame:RemoveDataProvider(ZoneDetailsDataProviderMixin)
 end
 
-function ZoneInfo:OnInitialize()
-    self.db = LibStub("AceDB-3.0"):New("ZoneInfoDB", defaults, true)
+function ZoneDetails:OnInitialize()
+    self.db = LibStub("AceDB-3.0"):New("ZoneDetailsDB", defaults, true)
     -- Called when the addon is loaded
-    LibStub("AceConfig-3.0"):RegisterOptionsTable("ZoneInfo", options, {"zoneinfo", "zi"})
+    LibStub("AceConfig-3.0"):RegisterOptionsTable("ZoneDetails", options, {"ZoneDetails", "zi"})
     self:RegisterEvent("ZONE_CHANGED")
     self:RegisterEvent('PLAYER_LEVEL_CHANGED')
 end
 
 
-function ZoneInfo:GetMessage(info)
+function ZoneDetails:GetMessage(info)
     return self.db.profile.message
 end
 
-function ZoneInfo:SetMessage(info, newValue)
+function ZoneDetails:SetMessage(info, newValue)
     self.db.profile.message = newValue
 end
 
-function ZoneInfo:GetZoneInfo()
+function ZoneDetails:GetZoneDetails()
     local zoneText
      -- Set the text to white and hide the zone info if we're on the Azeroth continent map.
     local mapID = WorldMapFrame:GetMapID()
@@ -173,8 +173,8 @@ function ZoneInfo:GetZoneInfo()
 
     else
         if mapInfo.mapType == WORLDMAP_ZONE then
-            local r2, g2, b2 = ZoneInfo:LevelColor(zones[mapName].low, zones[mapName].high, playerLevel)
-            local r1, g1, b1 = ZoneInfo:GetFactionColor(mapName)
+            local r2, g2, b2 = ZoneDetails:LevelColor(zones[mapName].low, zones[mapName].high, playerLevel)
+            local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
             zoneText = ("|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r\n\n"):format(
                 r1*255,
                 g1*255,
@@ -190,8 +190,8 @@ function ZoneInfo:GetZoneInfo()
             if zones[mapName].instances then
                 zoneText = zoneText..("\n|cffffff00%s:|r"):format("Instances")
                 for _, instance in ipairs(zones[mapName].instances) do
-                    local r2, g2, b2 = ZoneInfo:LevelColor(instances[instance].low, instances[instance].high, playerLevel)
-                    local r1, g1, b1 = ZoneInfo:GetFactionColor(mapName)
+                    local r2, g2, b2 = ZoneDetails:LevelColor(instances[instance].low, instances[instance].high, playerLevel)
+                    local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
                     zoneText = zoneText..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
                         r1*255, 
                         g1*255, 
@@ -208,8 +208,8 @@ function ZoneInfo:GetZoneInfo()
 
             if zones[mapName].raids then
                 for _, raid in ipairs(zones[mapName].raids) do
-                    local r2, g2, b2 = ZoneInfo:LevelColor(raids[raid].low, raids[raid].high, playerLevel)
-                    local r1, g1, b1 = ZoneInfo:GetFactionColor(mapName)
+                    local r2, g2, b2 = ZoneDetails:LevelColor(raids[raid].low, raids[raid].high, playerLevel)
+                    local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
                     zoneText = zoneText ..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d]|r   %s-Man"):format(
                         r1*255,
                         g1*255,
@@ -230,25 +230,25 @@ function ZoneInfo:GetZoneInfo()
     end
 end
 
-function ZoneInfo:ZoneID()
+function ZoneDetails:ZoneID()
     local uimap = C_Map.GetBestMapForUnit("player")
     local mapinfo = C_Map.GetMapInfo(uimap)
     self:Print("Current zone is \""..mapinfo.name.."\" with ID: "..mapinfo.mapID)
 end
 
 
-function ZoneInfo:IsShowInChat(info)
+function ZoneDetails:IsShowInChat(info)
     return self.db.profile.showInChat    
 end
 
 
-function ZoneInfo:ToggleIsShowInChat(info, value)
+function ZoneDetails:ToggleIsShowInChat(info, value)
     self.db.profile.showInChat = value
     self:Print("Set Show in Chat to "..tostring(value))
 end
 
 
-function ZoneInfo:ZONE_CHANGED()
+function ZoneDetails:ZONE_CHANGED()
     if GetBindLocation() == GetSubZoneText() then
         if self.db.profile.showInChat then
             self:Print(self.db.profile.message)
@@ -256,13 +256,13 @@ function ZoneInfo:ZONE_CHANGED()
     end
 end
 
-function ZoneInfo:PLAYER_LEVEL_CHANGED(oldLevel, newLevel)
+function ZoneDetails:PLAYER_LEVEL_CHANGED(oldLevel, newLevel)
     playerLevel = newLevel
 end
 
 -- Pulled from LibTourist
 -- Returns an r, g and b value representing a color, depending on the given zone and the current character's faction.
-function ZoneInfo:GetFactionColor(zone)
+function ZoneDetails:GetFactionColor(zone)
 	zone = zones[zone]
 
 	if zone.faction == "Contested" then
@@ -284,7 +284,7 @@ end
 -- Returns an r, g and b value representing a color ranging from grey (too low) via 
 -- green, yellow and orange to red (too high) depending on the player level within 
 -- the given range. Returns white if no level is applicable, like in cities.	
-function ZoneInfo:LevelColor(low, high, currentLevel)
+function ZoneDetails:LevelColor(low, high, currentLevel)
 	local midBracket = (low + high) / 2
 
 	if low <= 0 and high <= 0 then

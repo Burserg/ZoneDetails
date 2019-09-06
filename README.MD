@@ -1,4 +1,4 @@
-## ZoneInfo
+## ZoneDetails
 First I want to give credit where credit is due. This project is based off of Cartographer_ZoneInfo by ckknight. Also shout out to phyber for Cromulent.
 
 This addon is designed for WoW Classic.
