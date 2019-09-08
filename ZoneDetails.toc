@@ -1,12 +1,13 @@
 ## Interface: 11302
 ## Title: ZoneDetails
 ## Author: Burserg
-## Version: 0.6
+## Version: 0.8
 ## Notes: "Gotta start somewhere!"
 ## OptionalDeps: LibStub, CallbackHandler-1.0
 ## X-Embeds: Ace3
 ## X-Category: Map
 ## X-License: All rights reserved.
+## X-Curse-Project-ID: 340319
 
 
 Libs\LibStub\LibStub.lua
@@ -14,6 +15,7 @@ Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
 
 Libs\AceAddon-3.0\AceAddon-3.0.xml
 Libs\AceEvent-3.0\AceEvent-3.0.xml
+Libs\AceHook-3.0\AceHook-3.0.xml
 Libs\AceDB-3.0\AceDB-3.0.xml
 
 Libs\AceConsole-3.0\AceConsole-3.0.xml

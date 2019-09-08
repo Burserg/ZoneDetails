@@ -3,8 +3,7 @@
 -- Credit to phyber for writing Cromulent
 --]]
 
-ZoneDetails = LibStub("AceAddon-3.0"):NewAddon("ZoneDetails", "AceConsole-3.0", "AceEvent-3.0")
-_ZoneDetails = {...}
+ZoneDetails = LibStub("AceAddon-3.0"):NewAddon("ZoneDetails", "AceConsole-3.0", "AceEvent-3.0", "AceHook-3.0")
 
 local AceGUI = LibStub("AceGUI-3.0")
 local ZoneDetailsDataProviderMixin = CreateFromMixins(MapCanvasDataProviderMixin)
@@ -12,6 +11,7 @@ local WORLDMAP_CONTINENT = Enum.UIMapType.Continent
 local WORLDMAP_ZONE = Enum.UIMapType.Zone
 local WORLDMAP_AZEROTH_ID = 947
 local playerLevel =  UnitLevel("player")
+local db
 
 local isAlliance, isHorde, isNeutral
 
@@ -31,7 +31,6 @@ local nodes = {}
 local herbs = {}
 local skins = {}
 local fishes = {}
-local professions = {}
 
 local profs = {
     "Leatherworking",
@@ -54,20 +53,30 @@ local Eastern_Kingdoms = "Eastern Kingdoms"
 
 local defaults = {
     profile = {
+        -- General Options
         message = "Home is where you make it!",
         showInChat = true,
-        showHerbs = false,
-        showMineNodes = false,
-        showFishing = false,
+
+        -- Tradeskill Map Options
+        showHerbs = true,
+        showMineNodes = true,
+        showFishing = true,
         showSkinning = false,
+
+        -- Instance/Raid/ BGs Map Options
         showInstances = true,
         showInstanceLevel = true,
         showInstancePins = false,
         showZoneLevel = true,
         showBattlegrounds = true,
-        fontSize = 32,
+
+        -- Zone Text Map Options
+        zoneTextFontSize = 32,
         zoneTextLocation = "TOP",
-        nodeTextLocation = "BOTTOMLEFT",
+
+        -- Profession Text Map Options
+        profTextFontSize = 32,
+        profTextLocation = "BOTTOMLEFT",
     }
 }
 
@@ -75,21 +84,89 @@ local options = {
     name = "ZoneDetails",
     handler = ZoneDetails,
     type = "group",
+    get = function(k) return db[k.arg] end,
+    set = function(k, v) db[k.arg] = v end,
     args = {
+        generalHeader = {
+            type = "header",
+            name = "General Settings",
+            order = 0,
+        },
         msg = {
             type = "input",
             name = "Message",
-            desc = "The Message to be displayed",
-            usage = "<Your message>",
-            get = "GetMessage",
-            set = "SetMessage",
+            order = 1,
+            arg = "message",
+            desc = "The Message to be displayed when you enter the area where your Hearthstone is set.",
+            width = "full"
         },
         showInChat = {
             type = "toggle",
             name = "Show in Chat",
+            order = 2,
+            arg = "showInChat",
             desc = "Toggles the display of messages in the chat window.",
-            get = "IsShowInChat",
-            set = "ToggleIsShowInChat",
+        },
+        mapOptions = {
+            type = "header",
+            name = "Map Settings",
+            order = 3,
+        },
+        showFishing = {
+            type = "toggle",
+            order = 4,
+            name = "Show Fishing level on Map",
+            arg = "showFishing",
+            desc = "Toggles the display of Fishing Skill on the map.",
+            width = "full",
+        },
+        showHerbs = {
+            type = "toggle",
+            order = 5,
+            name = "Show Herbs available in zone",
+            arg = "showHerbs",
+            desc = "Toggles the display of herbs that can be found in current zone.",
+            width = "full",
+        },
+        showMineNodes = {
+            type = "toggle",
+            order = 6,
+            name = "Show Minerals available in zone",
+            arg = "showMineNodes",
+            desc = "Toggles the display of minerals that can be found in current zone.",
+            width = "full",
+        },
+        showSkinning = {
+            type = "toggle",
+            order = 7,
+            name = "Show skins available from mobs in zone (NYI)",
+            arg = "showSkinning",
+            desc = "Toggles the display of skins that can be found in current zone.",
+            width = "full",
+        },
+        showInstances = {
+            type = "toggle",
+            order = 8,
+            name = "Show Instances (NYI)",
+            arg = "showInstances",
+            desc = "Toggles the display of instances that can be found in current zone.",
+            width = "full",
+        },
+        showInstanceLevel = {
+            type = "toggle",
+            order = 9,
+            name = "Show Instance Levels (NYI)",
+            arg = "showInstanceLevel",
+            desc = "Toggles the display of instance levels.",
+            width = "full",
+        },
+        showInstancePins = {
+            type = "toggle",
+            order = 9,
+            name = "Show Instance Entrance Pins (NYI)",
+            arg = "showInstancePins",
+            desc = "Toggles the display of instance entrance.",
+            width = "full",
         },
     }
 }
@@ -200,20 +277,14 @@ end
 
 function ZoneDetails:OnInitialize()
     self.db = LibStub("AceDB-3.0"):New("ZoneDetailsDB", defaults, true)
+    db = self.db.profile
     -- Called when the addon is loaded
-    LibStub("AceConfig-3.0"):RegisterOptionsTable("ZoneDetails", options, {"ZoneDetails", "zd"})
+    LibStub("AceConfig-3.0"):RegisterOptionsTable("ZoneDetails", options)
     self.optionsFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("ZoneDetails", "ZoneDetails")
+    self:RegisterChatCommand("zonedetails", function() InterfaceOptionsFrame_OpenToCategory(self.optionsFrame) end)
+    self:RegisterChatCommand("zd", function() InterfaceOptionsFrame_OpenToCategory(self.optionsFrame) end)
     self:RegisterEvent("ZONE_CHANGED")
     self:RegisterEvent('PLAYER_LEVEL_CHANGED')
-end
-
-
-function ZoneDetails:GetMessage(info)
-    return self.db.profile.message
-end
-
-function ZoneDetails:SetMessage(info, newValue)
-    self.db.profile.message = newValue
 end
 
 function ZoneDetails:GetZoneDetails()
@@ -224,12 +295,26 @@ function ZoneDetails:GetZoneDetails()
     local mapName = mapInfo.name
     local zone = mapID
 
-    if mapInfo.mapID == WORLDMAP_AZEROTH_ID then
-
-        if mapInfo.mapType == WORLDMAP_CONTINENT then
-            -- Future use. We'll add the zone info on hover
-            return nil
-        end
+    if mapInfo.mapType == WORLDMAP_CONTINENT then
+        -- Try to get the hovered zone name or uiMapID.
+        -- local map = WorldMapFrame:GetMapID()
+        -- local uiMapID_old
+        -- WorldMapFrame.ScrollContainer:HookScript("OnUpdate", function(self)
+        --     local curX, curY = WorldMapFrame.ScrollContainer:GetNormalizedCursorPosition()
+        --     local vec2d = {curX, curY}
+        --     local uiMapID, mapPosition = C_Map.GetMapInfoAtPosition(map, vec2d[1], vec2d[2])
+            
+        --     if uiMapID then
+        --         if uiMapID == uiMapID_old then
+        --             return
+        --         else
+        --             ZoneDetails:Print(uiMapID.name)
+        --             uiMapID_old = uiMapID
+        --         end
+        --     end
+            
+        -- end)
+        return nil
 
     else
         if mapInfo.mapType == WORLDMAP_ZONE then
@@ -309,14 +394,10 @@ function ZoneDetails:GetZoneDetails()
     end
 end
 
-function ZoneDetails:GetProfessionDetails()
-    -- Final profession text
-    local profText
-
-    -- Get current profession skills and rank
+function ZoneDetails:GetProfessions()
+    local professions = {}
     for skillIndex = 1, GetNumSkillLines() do
-        local skillName, isHeader, _, skillRank, _, _, _, _, _, _, _, _,
-        skillDescription = GetSkillLineInfo(skillIndex)
+        local skillName, isHeader, _, skillRank, _, _, _, _, _, _, _, _, skillDescription = GetSkillLineInfo(skillIndex)
         if not isHeader then
             for _,v in pairs(profs) do
                 if v == skillName then
@@ -325,6 +406,16 @@ function ZoneDetails:GetProfessionDetails()
             end
         end
     end
+    return professions
+end
+
+
+function ZoneDetails:GetProfessionDetails()
+    -- Final profession text
+    local profText
+
+    -- Get current profession skills and rank
+    local profs = self.GetProfessions()
 
     local mapID = WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
@@ -335,43 +426,70 @@ function ZoneDetails:GetProfessionDetails()
 
         if mapInfo.mapType == WORLDMAP_CONTINENT then
             -- Future use. We'll add the zone info on hover
+            profText = ""
             return nil
         end
 
     else
-        if professions["Fishing"] then
-            if mapInfo.mapType == WORLDMAP_ZONE then
-                local r, g, b = ZoneDetails:FishingColor(zones[mapName].fishing_min, professions["Fishing"])
-                profText = ("|cffffff00%s|r |cff%02x%02x%02x[%d]|r\n\n"):format(
-                    "Fishing Minimum",
-                    r*255,
-                    g*255,
-                    b*255,
-                    zones[mapName].fishing_min
-                )
+        if mapInfo.mapType == WORLDMAP_ZONE  then
+            if profs["Mining"] or profs["Herbalism"] or profs["Fishing"] then
+                profText = ("\n|cffffff00%s:|r"):format("Professions")
             end
-        return profText
+            if db.showFishing and zones[mapName].fishing_min then
+                if profs["Fishing"] then
+                    local r, g, b = ZoneDetails:FishingColor(zones[mapName].fishing_min, profs["Fishing"])
+                    profText = profText ..("\n|cffffff00%s|r |cff%02x%02x%02x[%d]|r\n"):format(
+                        "Fishing Minimum",
+                        r*255,
+                        g*255,
+                        b*255,
+                        zones[mapName].fishing_min
+                    )
+                end
+            end
+
+            if db.showHerbs and zones[mapName].herbs then
+                if profs["Herbalism"] then
+                    profText = profText..("\n|cffffff00%s:|r"):format("Herbs")
+                    for _, herb in ipairs(zones[mapName].herbs) do
+                        local r, g, b = ZoneDetails:LevelColor(herbs[herb].low, herbs[herb].high, profs["Herbalism"])
+                        profText = profText ..("\n%s |cff%02x%02x%02x[%d-%d]|r"):format(
+                            herb,
+                            r*255,
+                            g*255,
+                            b*255,
+                            herbs[herb].low, 
+                            herbs[herb].high
+                        )
+                    end
+                end
+            end
+
+            if db.showMineNodes and zones[mapName].nodes then
+                if profs["Mining"] then
+                    profText = profText..("\n|cffffff00%s:|r"):format("Nodes")
+                    for _, node in ipairs(zones[mapName].nodes) do
+                        local r, g, b = ZoneDetails:LevelColor(nodes[node].low, nodes[node].high, profs["Mining"])
+                        profText = profText ..("\n%s |cff%02x%02x%02x[%d-%d]|r"):format(
+                            node,
+                            r*255,
+                            g*255,
+                            b*255,
+                            nodes[node].low, 
+                            nodes[node].high
+                        )
+                    end
+                end
+            end
         end
+        return profText
     end
 end
-            
-
-
-function ZoneDetails:IsShowInChat(info)
-    return self.db.profile.showInChat    
-end
-
-
-function ZoneDetails:ToggleIsShowInChat(info, value)
-    self.db.profile.showInChat = value
-    self:Print("Set Show in Chat to "..tostring(value))
-end
-
 
 function ZoneDetails:ZONE_CHANGED()
     if GetBindLocation() == GetSubZoneText() then
-        if self.db.profile.showInChat then
-            self:Print(self.db.profile.message)
+        if db.showInChat then
+            self:Print(db.message)
         end
     end
 end
@@ -486,14 +604,17 @@ zones["Elwynn Forest"] = {
     instances = {"The Stockade"},
     continent = Eastern_Kingdoms,
     faction = "Alliance",
-    fishing_min = 1
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
+    nodes = {"Copper Vein"}
 }
 zones["Teldrassil"] = {
     low = 1,
     high = 11,
     continent = Kalimdor,
     faction = "Alliance",
-    fishing_min = 1
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot"}
 }
 
 zones["Dun Morogh"] = {
@@ -501,7 +622,9 @@ zones["Dun Morogh"] = {
     high = 12,
     continent = Eastern_Kingdoms,
     faction = "Alliance",
-    fishing_min = 1
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
+    nodes = {"Copper Vein"}
 }
 
 zones["Westfall"] = {
@@ -510,7 +633,9 @@ zones["Westfall"] = {
     continent = Eastern_Kingdoms,
     instances = {"The Deadmines"},
     faction = "Alliance",
-    fishing_min = 55
+    fishing_min = 55,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Bruiseweed"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"}
 }
 
 zones["Loch Modan"] = {
@@ -518,7 +643,9 @@ zones["Loch Modan"] = {
     high = 18,
     continent = Eastern_Kingdoms,
     faction = "Alliance",
-    fishing_min = 20
+    fishing_min = 20,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Bruiseweed"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"}
 }
 
 zones["Darkshore"] = {
@@ -526,7 +653,9 @@ zones["Darkshore"] = {
     high = 19,
     continent = Eastern_Kingdoms,
     faction = "Alliance",
-    fishing_min = 20
+    fishing_min = 20,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"}
 }
 
 -- Horde 
@@ -537,7 +666,9 @@ zones["Durotar"] = {
     continent = Kalimdor,
     instances = {"Ragefire Chasm"},
     faction = "Horde",
-    fishing_min = 1
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal"},
+    nodes = {"Copper Vein"}
 }
 
 zones["Mulgore"] = {
@@ -545,7 +676,9 @@ zones["Mulgore"] = {
     high = 10,
     continent = Kalimdor,
     faction = "Horde",
-    fishing_min = 1
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
+    nodes = {"Copper Vein"}
 }
 
 zones["Tirisfal Glades"] = {
@@ -554,7 +687,9 @@ zones["Tirisfal Glades"] = {
     continent = Eastern_Kingdoms,
     instances = {"Scarlet Monastery: Graveyard", "Scarlet Monastery: Library", "Scarlet Monastery: Armory", "Scarlet Monastery: Cathedral"},
     faction = "Horde",
-    fishing_min = 1
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
+    nodes = {"Copper Vein"}
 }
 
 zones["Silverpine Forest"] = {
@@ -563,7 +698,9 @@ zones["Silverpine Forest"] = {
     instances = {"Shadowfang Keep"},
     continent = Eastern_Kingdoms,
     faction = "Horde",
-    fishing_min = 20
+    fishing_min = 20,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"}
 }
 
 zones["The Barrens"] = {
@@ -573,7 +710,9 @@ zones["The Barrens"] = {
     instances = {"Wailing Caverns", "Razorfen Kraul", "Razorfen Downs"},
     battlegrounds = {"Warsong Gulch"},
     faction = "Horde",
-    fishing_min = 20
+    fishing_min = 20,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"}
 }
 
 -- Contested
@@ -583,7 +722,9 @@ zones["Duskwood"] = {
     high = 30,
     continent = Eastern_Kingdoms,
     faction = "Contested",
-    fishing_min = 55
+    fishing_min = 55,
+    herbs = {"Mageroyal", "Briarthorn", "Wild Steelbloom", "Grave Moss", "Kingsblood"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein"}
 }
 
 zones["Moonglade"] = {
@@ -599,7 +740,9 @@ zones["Stonetalon Mountains"] = {
     high = 25,
     continent = Kalimdor,
     faction = "Contested",
-    fishing_min = 55
+    fishing_min = 55,
+    herbs = {"Mageroyal", "Bruiseweed", "Wild Steelbloom", "Kingsblood"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
 zones["Redridge Mountains"] = {
@@ -607,7 +750,9 @@ zones["Redridge Mountains"] = {
     high = 25,
     continent = Eastern_Kingdoms,
     faction = "Contested",
-    fishing_min = 55
+    fishing_min = 55,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Bruiseweed"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"}
 }
 
 zones["Ashenvale"] = {
@@ -617,7 +762,9 @@ zones["Ashenvale"] = {
     battlegrounds = {"Warsong Gulch"},
     continent = Kalimdor,
     faction = "Contested",
-    fishing_min = 55
+    fishing_min = 55,
+    herbs = {"Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Kingsblood", "Liferoot"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein"}
 }
 
 zones["Wetlands"] = {
@@ -625,7 +772,9 @@ zones["Wetlands"] = {
     high = 30,
     continent = Eastern_Kingdoms,
     faction = "Contested",
-    fishing_min = 55
+    fishing_min = 55,
+    herbs = {"Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood", "Liferoot"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein"}
 }
 
 zones["Hillsbrad Foothills"] = {
@@ -634,7 +783,9 @@ zones["Hillsbrad Foothills"] = {
     continent = Eastern_Kingdoms,
     battlegrounds = {"Alterac Valley"},
     faction = "Contested",
-    fishing_min = 55
+    fishing_min = 55,
+    herbs = {"Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Kingsblood", "Liferoot"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit"}
 }
 
 zones["Alterac Mountains"] = {
@@ -643,7 +794,9 @@ zones["Alterac Mountains"] = {
     continent = Eastern_Kingdoms,
     battlegrounds = {"Alterac Valley"},
     faction = "Contested",
-    fishing_min = 130
+    fishing_min = 130,
+    herbs = {"Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Wintersbite"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
 zones["Thousand Needles"] = {
@@ -651,7 +804,9 @@ zones["Thousand Needles"] = {
     high = 35,
     continent = Kalimdor,
     faction = "Contested",
-    fishing_min = 130
+    fishing_min = 130,
+    herbs = {"Bruiseweed", "Wild Steelbloom", "Kingsblood"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Ooze Covered Silver Vein", "Iron Deposit", "Gold Vein", "Ooze Covered Gold Vein", "Mithril Deposit", "Ooze Covered Mithril Deposit"}
 }
 
 zones["Desolace"] = {
@@ -660,7 +815,9 @@ zones["Desolace"] = {
     continent = Kalimdor,
     instances = {"Maraudon"},
     faction = "Contested",
-    fishing_min = 130
+    fishing_min = 130,
+    herbs = {"Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood", "Liferoot", "Gromsblood"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
 zones["Arathi Highlands"] = {
@@ -669,7 +826,9 @@ zones["Arathi Highlands"] = {
     continent = Eastern_Kingdoms,
     battlegrounds = {"Arathi Basin"},
     faction = "Contested",
-    fishing_min = 130
+    fishing_min = 130,
+    herbs = {"Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker"},
+    nodes = {"Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
 zones["Swamp of Sorrows"] = {
@@ -678,7 +837,9 @@ zones["Swamp of Sorrows"] = {
     continent = Eastern_Kingdoms,
     instances = {"The Temple of Atal'Hakkar"},
     faction = "Contested",
-    fishing_min = 130
+    fishing_min = 130,
+    herbs = {"Stranglekelp", "Kingsblood", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Blindweed"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"}
 }
 
 zones["Badlands"] = {
@@ -686,6 +847,8 @@ zones["Badlands"] = {
     high = 45,
     continent = Eastern_Kingdoms,
     faction = "Contested",
+    herbs = {"Wild Steelbloom", "Kingsblood", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Firebloom", "Purple Lotus"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
 zones["Stranglethorn Vale"] = {
@@ -694,7 +857,9 @@ zones["Stranglethorn Vale"] = {
     continent = Eastern_Kingdoms,
     raids = {"Zul'Gurub"},
     faction = "Contested",
-    fishing_min = 130
+    fishing_min = 130,
+    herbs = {"Stranglekelp", "Wild Steelbloom", "Kingsblood", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Purple Lotus"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
 zones["Tanaris"] = {
@@ -703,7 +868,9 @@ zones["Tanaris"] = {
     continent = Kalimdor,
     instances = {"Zul'Farrak"},
     faction = "Contested",
-    fishing_min = 205
+    fishing_min = 205,
+    herbs = {"Stranglekelp", "Firebloom", "Purple Lotus"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"}
 }
 
 zones["Dustwallow Marsh"] = {
@@ -712,7 +879,9 @@ zones["Dustwallow Marsh"] = {
     continent = Kalimdor,
     raids = {"Onyxia's Lair"},
     faction = "Contested",
-    fishing_min = 130
+    fishing_min = 130,
+    herbs = {"Stranglekelp", "Kingsblood", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
 zones["The Hinterlands"] = {
@@ -720,7 +889,9 @@ zones["The Hinterlands"] = {
     high = 49,
     continent = Eastern_Kingdoms,
     faction = "Contested",
-    fishing_min = 205
+    fishing_min = 205,
+    herbs = {"Stranglekelp", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Purple Lotus", "Sungrass", "Ghost Mushroom", "Golden Sansam"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"}
 }
 
 zones["Feralas"] = {
@@ -729,7 +900,9 @@ zones["Feralas"] = {
     continent = Kalimdor,
     instances = {"Dire Maul: East", "Dire Maul: North", "Dire Maul: West"},
     faction = "Contested",
-    fishing_min = 205
+    fishing_min = 205,
+    herbs = {"Stranglekelp", "Liferoot", "Goldthorn", "Khadgar's Whisker", "Purple Lotus", "Sungrass", "Golden Sansam"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Ooze Covered Gold Vein", "Mithril Deposit", "Ooze Covered Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein", "Ooze Covered Thorium Vein"}
 }
 
 zones["Azshara"] = {
@@ -737,7 +910,9 @@ zones["Azshara"] = {
     high = 55,
     continent = Kalimdor,
     faction = "Contested",
-    fishing_min = 205
+    fishing_min = 205,
+    herbs = {"Stranglekelp", "Goldthorn", "Khadgar's Whisker", "Purple Lotus", "Sungrass", "Golden Sansam", "Mountain Silversage"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Rich Thorium Vein"}
 }
 
 zones["Western Plaguelands"] = {
@@ -746,7 +921,9 @@ zones["Western Plaguelands"] = {
     continent = Eastern_Kingdoms,
     instances = {"Scholomance"},
     faction = "Contested",
-    fishing_min = 205
+    fishing_min = 205,
+    herbs = {"Arthas' Tears", "Sungrass", "Dreamfoil", "Mountain Silversage", "Plaguebloom"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit","Small Thorium Vein", "Rich Thorium Vein"}
 }
 
 zones["Burning Steppes"] = {
@@ -756,7 +933,9 @@ zones["Burning Steppes"] = {
     instances = {"Blackrock Depths", "Blackrock Spire"},
     raids = {"Molten Core", "Blackwing Lair"},
     faction = "Contested",
-    fishing_min = 330
+    fishing_min = 330,
+    herbs = {"Sungrass", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Black Lotus"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit","Dark Iron Deposit", "Small Thorium Vein", "Rich Thorium Vein"}
 }
 
 zones["Felwood"] = {
@@ -764,7 +943,9 @@ zones["Felwood"] = {
     high = 54,
     continent = Kalimdor,
     faction = "Contested",
-    fishing_min = 205
+    fishing_min = 205,
+    herbs = {"Arthas' Tears", "Sungrass", "Gromsblood", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Plaguebloom"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit","Small Thorium Vein"}
 }
 
 zones["Searing Gorge"] = {
@@ -774,6 +955,8 @@ zones["Searing Gorge"] = {
     instances = {"Blackrock Depths", "Blackrock Spire"},
     raids = {"Molten Core", "Blackwing Lair"},
     faction = "Contested",
+    herbs = {"Firebloom"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit","Dark Iron Deposit", "Small Thorium Vein"}
 }
 
 zones["Un'Goro Crater"] = {
@@ -781,7 +964,9 @@ zones["Un'Goro Crater"] = {
     high = 55,
     continent = Kalimdor,
     faction = "Contested",
-    fishing_min = 205
+    fishing_min = 205,
+    herbs = {"Sungrass", "Blindweed", "Golden Sansam", "Dreamfoil", "Mountain Silversage"},
+    nodes = {"Truesilver Deposit", "Ooze Covered Truesilver Deposit", "Small Thorium Vein", "Ooze Covered Thorium Vein", "Rich Thorium Vein", "Ooze Covered Rich Thorium Vein"}
 }
 
 zones["Winterspring"] = {
@@ -789,7 +974,9 @@ zones["Winterspring"] = {
     high = 60,
     continent = Kalimdor,
     faction = "Contested",
-    fishing_min = 330
+    fishing_min = 330,
+    herbs = {"Mountain Silversage", "Icecap", "Black Lotus"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit","Small Thorium Vein", "Rich Thorium Vein"}
 }
 
 zones["Blasted Lands"] = {
@@ -797,6 +984,8 @@ zones["Blasted Lands"] = {
     high = 60,
     continent = Eastern_Kingdoms,
     faction = "Contested",
+    herbs = {"Goldthorn", "Firebloom", "Sungrass", "Gromsblood"},
+    nodes = {"Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"}
 }
 
 zones["Eastern Plaguelands"] = {
@@ -806,7 +995,9 @@ zones["Eastern Plaguelands"] = {
     instances = {"Stratholme"},
     raids = {"Naxxramas"},
     faction = "Contested",
-    fishing_min = 330
+    fishing_min = 330,
+    herbs = {"Arthas' Tears", "Sungrass", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Plaguebloom", "Black Lotus"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit","Small Thorium Vein", "Rich Thorium Vein"}
 }
 
 zones["Deadwind Pass"] = {
@@ -823,7 +1014,9 @@ zones["Silithus"] = {
     continent = Kalimdor,
     raids = {"Ruins of Ahn'Qiraj", "Ahn'Qiraj"},
     faction = "Contested",
-    fishing_min = 330
+    fishing_min = 330,
+    herbs = {"Sungrass", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Black Lotus"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein", "Rich Thorium Vein", "Ooze Covered Rich Thorium Vein"}
 }
 
 -- City definition ---------------------------------------------------------------------------------------
@@ -1310,6 +1503,13 @@ nodes["Silver Vein"] = {
     alt = {"Moss Agate", "Shadowgem", "Lesser Moonstone"}
 }
 
+nodes["Ooze Covered Silver Vein"] = {
+    low = 75,
+    high = 175,
+    ore = {"Silver Ore"},
+    alt = {"Moss Agate", "Shadowgem", "Lesser Moonstone"}
+}
+
 nodes["Iron Deposit"] = {
     low = 125,
     high = 225,
@@ -1318,6 +1518,13 @@ nodes["Iron Deposit"] = {
 }
 
 nodes["Gold Vein"] = {
+    low = 155,
+    high = 255,
+    ore = {"Gold Ore"},
+    alt = {"Jade", "Lesser Moonstone", "Citrine"}
+}
+
+nodes["Ooze Covered Gold Vein"] = {
     low = 155,
     high = 255,
     ore = {"Gold Ore"},
@@ -1357,13 +1564,6 @@ nodes["Dark Iron Deposit"] = {
     high = 310,
     ore = {"Dark Iron Ore"},
     alt = {"Black Vitriol", "Blood of the Mountain", "Black Diamond"}
-}
-
-nodes["Small Thorium Vein"] = {
-    low = 250,
-    high = 310,
-    ore = {"Thorium Ore"},
-    alt = {"Star Ruby", "Black Vitriol", "Blue Sapphire", "Large Opal"}
 }
 
 nodes["Small Thorium Vein"] = {
@@ -1423,3 +1623,6 @@ nodes["Large Obsidian Chunk"] = {
 -- Fishing definitions ---------------------------------------------------------------------------------------
 -- Trying decide if I want to map out the fish or just leave the zone minimum.
 -- Might be nice to have fish by level/zone
+
+-- Cloth definition ---------------------------------------------------------------------------------------
+-- Might be nice to have cloth drops mapped as well. Not sure if this is possible though.1
