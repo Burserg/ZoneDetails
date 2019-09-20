@@ -16,4 +16,4 @@ This addon is designed for WoW Classic.
     * [x] Profession Toggles
     * [ ] Frame location dropdown
     * [ ] Text size selector
-* [ ] Entrance pins on map
+* [x] Entrance pins on map
