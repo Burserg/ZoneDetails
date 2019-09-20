@@ -1,7 +1,7 @@
 ## Interface: 11302
 ## Title: ZoneDetails
 ## Author: Burserg
-## Version: 0.9.1
+## Version: 0.9.3
 ## Notes: "Gotta start somewhere!"
 ## OptionalDeps: LibStub, CallbackHandler-1.0
 ## SavedVariables: ZoneDetailsDB
