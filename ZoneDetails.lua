@@ -2,11 +2,13 @@
 -- Credit to ckknight for originally writing Cartographer_ZoneDetails
 -- Credit to phyber for writing Cromulent
 --]]
-
+print("Addon loaded")
 ZoneDetails = LibStub("AceAddon-3.0"):NewAddon("ZoneDetails", "AceConsole-3.0", "AceEvent-3.0", "AceHook-3.0")
+ZoneDetailsGlobalPinMixin = BaseMapPoiPinMixin:CreateSubPin("PIN_FRAME_LEVEL_DUNGEON_ENTRANCE")
 
 local AceGUI = LibStub("AceGUI-3.0")
 local ZoneDetailsDataProviderMixin = CreateFromMixins(MapCanvasDataProviderMixin)
+local ZoneDetailsPinDataProviderMixin = CreateFromMixins(MapCanvasDataProviderMixin)
 local WORLDMAP_CONTINENT = Enum.UIMapType.Continent
 local WORLDMAP_ZONE = Enum.UIMapType.Zone
 local WORLDMAP_AZEROTH_ID = 947
@@ -65,10 +67,11 @@ local defaults = {
 
         -- Instance/Raid/ BGs Map Options
         showInstances = true,
-        showInstanceLevel = true,
-        showInstancePins = false,
+        showInstancePins = true,
+        showRaidPins = true,
         showZoneLevel = true,
         showBattlegrounds = true,
+        showRaids = true,
 
         -- Zone Text Map Options
         zoneTextFontSize = 32,
@@ -94,7 +97,7 @@ local options = {
         },
         msg = {
             type = "input",
-            name = "Message",
+            name = "Welcome Message",
             order = 1,
             arg = "message",
             desc = "The Message to be displayed when you enter the area where your Hearthstone is set.",
@@ -102,70 +105,91 @@ local options = {
         },
         showInChat = {
             type = "toggle",
-            name = "Show in Chat",
+            name = "Show Message",
             order = 2,
             arg = "showInChat",
-            desc = "Toggles the display of messages in the chat window.",
+            desc = "Toggles the display of welcome messages in the chat window.",
         },
         mapOptions = {
             type = "header",
             name = "Map Settings",
             order = 3,
         },
-        showFishing = {
+        showInstances = {
             type = "toggle",
             order = 4,
-            name = "Show Fishing level on Map",
+            name = "Show Instance Text",
+            arg = "showInstances",
+            desc = "Toggles the display of instances that can be found in current zone.",
+            width = "full",
+        },
+        showInstancePins = {
+            type = "toggle",
+            order = 5,
+            name = "Show Instance Entrance",
+            arg = "showInstancePins",
+            desc = "Toggles the display of instance entrance.",
+            width = "full",
+        },
+        showRaids = {
+            type = "toggle",
+            order = 6,
+            name = "Show Raids",
+            arg = "showRaids",
+            desc = "Toggles the display of raids.",
+            width = "full",
+        },
+        showRaidPins = {
+            type = "toggle",
+            order = 7,
+            name = "Show Raid Entrance",
+            arg = "showRaidPins",
+            desc = "Toggles the display of raid entrance.",
+            width = "full",
+        },
+        showBattlegrounds = {
+            type = "toggle",
+            order = 8,
+            name = "Show Battlegrounds",
+            arg = "showBattlegrounds",
+            desc = "Toggles the display of battlegrounds.",
+            width = "full",
+        },
+        professionOptions = {
+            type = "header",
+            name = "Profession Settings",
+            order = 9,
+        },
+        showFishing = {
+            type = "toggle",
+            order = 10,
+            name = "Show Fishing",
             arg = "showFishing",
             desc = "Toggles the display of Fishing Skill on the map.",
             width = "full",
         },
         showHerbs = {
             type = "toggle",
-            order = 5,
-            name = "Show Herbs available in zone",
+            order = 11,
+            name = "Show Herbs",
             arg = "showHerbs",
             desc = "Toggles the display of herbs that can be found in current zone.",
             width = "full",
         },
         showMineNodes = {
             type = "toggle",
-            order = 6,
-            name = "Show Minerals available in zone",
+            order = 12,
+            name = "Show Minerals",
             arg = "showMineNodes",
             desc = "Toggles the display of minerals that can be found in current zone.",
             width = "full",
         },
         showSkinning = {
             type = "toggle",
-            order = 7,
-            name = "Show skins available from mobs in zone (NYI)",
+            order = 13,
+            name = "Show Skins (NYI)",
             arg = "showSkinning",
             desc = "Toggles the display of skins that can be found in current zone.",
-            width = "full",
-        },
-        showInstances = {
-            type = "toggle",
-            order = 8,
-            name = "Show Instances (NYI)",
-            arg = "showInstances",
-            desc = "Toggles the display of instances that can be found in current zone.",
-            width = "full",
-        },
-        showInstanceLevel = {
-            type = "toggle",
-            order = 9,
-            name = "Show Instance Levels (NYI)",
-            arg = "showInstanceLevel",
-            desc = "Toggles the display of instance levels.",
-            width = "full",
-        },
-        showInstancePins = {
-            type = "toggle",
-            order = 9,
-            name = "Show Instance Entrance Pins (NYI)",
-            arg = "showInstancePins",
-            desc = "Toggles the display of instance entrance.",
             width = "full",
         },
     }
@@ -267,12 +291,40 @@ function ZoneDetailsDataProviderMixin:RemoveAllData()
     self.ZoneTxtFrame:Hide()
 end
 
+function ZoneDetailsPinDataProviderMixin:RefreshAllData(fromOnShow)
+    -- Remove existing pins
+    self:GetMap():RemoveAllPinsByTemplate("ZoneDetailsGlobalPinTemplate")
+
+    local pins = ZoneDetails:GetPins()
+
+    -- Add returned pins
+    if pins then
+        for _, pin in ipairs(pins) do
+            self:GetMap():AcquirePin("ZoneDetailsGlobalPinTemplate", pin)
+        end
+    end
+end
+
+
+
+function ZoneDetailsGlobalPinMixin:OnAcquired(myInfo)
+    BaseMapPoiPinMixin.OnAcquired(self, myInfo)
+end
+
+function ZoneDetailsGlobalPinMixin:OnMouseUp(btn)
+    if btn == "RightButton" then
+        WorldMapFrame:NavigateToParentMap()
+    end
+end
+
 function ZoneDetails:OnEnable()
     WorldMapFrame:AddDataProvider(ZoneDetailsDataProviderMixin)
+    WorldMapFrame:AddDataProvider(ZoneDetailsPinDataProviderMixin)
 end
 
 function ZoneDetails:OnDisable()
     WorldMapFrame:RemoveDataProvider(ZoneDetailsDataProviderMixin)
+    WorldMapFrame:RemoveDataProvider(ZoneDetailsPinDataProviderMixin)
 end
 
 function ZoneDetails:OnInitialize()
@@ -293,7 +345,6 @@ function ZoneDetails:GetZoneDetails()
     local mapID = WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
     local mapName = mapInfo.name
-    local zone = mapID
 
     if mapInfo.mapType == WORLDMAP_CONTINENT then
         -- Try to get the hovered zone name or uiMapID.
@@ -318,75 +369,85 @@ function ZoneDetails:GetZoneDetails()
 
     else
         if mapInfo.mapType == WORLDMAP_ZONE then
-            local r2, g2, b2 = ZoneDetails:LevelColor(zones[mapName].low, zones[mapName].high, playerLevel)
-            local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
-            zoneText = ("|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r\n\n"):format(
-                r1*255,
-                g1*255,
-                b1*255,
-                mapName,
-                r2*255,
-                g2*255,
-                b2*255,
-                zones[mapName].low,
-                zones[mapName].high
-                )
-            -- Do work to get zone name, level, faction, and any instances/raids.
-            if zones[mapName].instances then
-                zoneText = zoneText..("\n|cffffff00%s:|r"):format("Instances")
-                for _, instance in ipairs(zones[mapName].instances) do
-                    local r2, g2, b2 = ZoneDetails:LevelColor(instances[instance].low, instances[instance].high, playerLevel)
-                    local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
-                    zoneText = zoneText..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
-                        r1*255, 
-                        g1*255, 
-                        b1*255, 
-                        instance,
-                        r2*255,
-                        g2*255,
-                        b2*255,
-                        instances[instance].low, 
-                        instances[instance].high
+            if db.showZoneLevel then
+                local r2, g2, b2 = ZoneDetails:LevelColor(zones[mapName].low, zones[mapName].high, playerLevel)
+                local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
+                zoneText = ("|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r\n\n"):format(
+                    r1*255,
+                    g1*255,
+                    b1*255,
+                    mapName,
+                    r2*255,
+                    g2*255,
+                    b2*255,
+                    zones[mapName].low,
+                    zones[mapName].high
                     )
+                else
+                    zoneText = ""
+                end
+            -- Do work to get zone name, level, faction, and any instances/raids.
+            if db.showInstances then
+                if zones[mapName].instances then
+                    zoneText = zoneText..("\n|cffffff00%s:|r"):format("Instances")
+                    for _, instance in ipairs(zones[mapName].instances) do
+                        local r2, g2, b2 = ZoneDetails:LevelColor(instances[instance].low, instances[instance].high, playerLevel)
+                        local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
+                        zoneText = zoneText..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
+                            r1*255, 
+                            g1*255, 
+                            b1*255, 
+                            instance,
+                            r2*255,
+                            g2*255,
+                            b2*255,
+                            instances[instance].low, 
+                            instances[instance].high
+                        )
+                    end
                 end
             end
             
-            if zones[mapName].battlegrounds then
-                zoneText = zoneText..("\n|cffffff00%s:|r"):format("Battlegrounds")
-                for _, battleground in ipairs(zones[mapName].battlegrounds) do
-                    local r2, g2, b2 = ZoneDetails:LevelColor(battlegrounds[battleground].low, battlegrounds[battleground].high, playerLevel)
-                    local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
-                    zoneText = zoneText ..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r   %s-Man"):format(
-                        r1*255,
-                        g1*255,
-                        b2*255,
-                        battleground,
-                        r2*255,
-                        g2*255,
-                        b2*255,                        
-                        battlegrounds[battleground].low,
-                        battlegrounds[battleground].high,
-                        battlegrounds[battleground].players
-                    )
+            if db.showBattlegrounds then
+                if zones[mapName].battlegrounds then
+                    zoneText = zoneText..("\n|cffffff00%s:|r"):format("Battlegrounds")
+                    for _, battleground in ipairs(zones[mapName].battlegrounds) do
+                        local r2, g2, b2 = ZoneDetails:LevelColor(battlegrounds[battleground].low, battlegrounds[battleground].high, playerLevel)
+                        local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
+                        zoneText = zoneText ..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r   %s-Man"):format(
+                            r1*255,
+                            g1*255,
+                            b2*255,
+                            battleground,
+                            r2*255,
+                            g2*255,
+                            b2*255,                        
+                            battlegrounds[battleground].low,
+                            battlegrounds[battleground].high,
+                            battlegrounds[battleground].players
+                        )
+                    end
                 end
             end
 
-            if zones[mapName].raids then
-                zoneText = zoneText..("\n|cffffff00%s:|r"):format("Raids")
-                for _, raid in ipairs(zones[mapName].raids) do
-                    local r2, g2, b2 = ZoneDetails:LevelColor(raids[raid].low, raids[raid].high, playerLevel)
-                    local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
-                    zoneText = zoneText ..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d]|r   %s-Man"):format(
-                        r1*255,
-                        g1*255,
-                        b2*255,
-                        raid,
-                        r2*255,
-                        g2*255,
-                        b2*255,                        
-                        raids[raid].high,
-                        raids[raid].players
-                    )
+            if db.showRaids then
+                if zones[mapName].raids then
+                    zoneText = zoneText..("\n|cffffff00%s:|r"):format("Raids")
+                    for _, raid in ipairs(zones[mapName].raids) do
+                        local r2, g2, b2 = ZoneDetails:LevelColor(raids[raid].low, raids[raid].high, playerLevel)
+                        local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
+                        zoneText = zoneText ..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d]|r   %s-Man"):format(
+                            r1*255,
+                            g1*255,
+                            b2*255,
+                            raid,
+                            r2*255,
+                            g2*255,
+                            b2*255,                        
+                            raids[raid].high,
+                            raids[raid].players
+                        )
+                    end
                 end
             end
             return zoneText
@@ -434,6 +495,8 @@ function ZoneDetails:GetProfessionDetails()
         if mapInfo.mapType == WORLDMAP_ZONE  then
             if profs["Mining"] or profs["Herbalism"] or profs["Fishing"] then
                 profText = ("\n|cffffff00%s:|r"):format("Professions")
+            else
+                profText = ""
             end
             if db.showFishing and zones[mapName].fishing_min then
                 if profs["Fishing"] then
@@ -483,6 +546,83 @@ function ZoneDetails:GetProfessionDetails()
             end
         end
         return profText
+    end
+end
+
+function ZoneDetails:GetPins()
+
+    -- Show pins if options are enabled
+    local mapID = WorldMapFrame:GetMapID()
+    local mapInfo = C_Map.GetMapInfo(mapID)
+    local mapName = mapInfo.name
+    local myPOIList = {}
+    local count = 0
+    
+    -- If we're on the zone map, show the pins.
+    if mapInfo.mapType == WORLDMAP_ZONE then
+        if zones[mapName].instances then
+
+            if db.showInstancePins then
+                if zones[mapName].instances then
+                    for _, instance in ipairs(zones[mapName].instances) do
+                        local r2, g2, b2 = ZoneDetails:LevelColor(instances[instance].low, instances[instance].high, playerLevel)
+                        local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
+                        local name = ("|cff%02x%02x%02x%s|r"):format(
+                            r1*255, 
+                            g1*255, 
+                            b1*255, 
+                            instance
+                        )
+                        local description = ("|cff%02x%02x%02x[%d-%d]|r "):format(
+                            r2*255,
+                            g2*255,
+                            b2*255,
+                            instances[instance].low, 
+                            instances[instance].high
+                        )
+                        local myPOI = {}
+                        myPOI["position"] = CreateVector2D(instances[instance].entrance[1] / 100, instances[instance].entrance[2] / 100)
+                        myPOI["name"] = name
+                        myPOI["description"] = description
+                        myPOI["atlasName"] = "Dungeon"
+                        count = count + 1
+                        myPOIList[count] = myPOI
+                    end
+                end
+            end
+
+            if db.showRaidPins then
+                if zones[mapName].raids then
+                    for _, raid in ipairs(zones[mapName].raids) do
+                        local r2, g2, b2 = ZoneDetails:LevelColor(raids[raid].low, raids[raid].high, playerLevel)
+                        local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
+                        local name = ("|cff%02x%02x%02x%s|r %s-Man"):format(
+                            r1*255, 
+                            g1*255, 
+                            b1*255, 
+                            raid,
+                            raids[raid].players
+                        )
+                        local description = ("|cff%02x%02x%02x[%d-%d]|r"):format(
+                            r2*255,
+                            g2*255,
+                            b2*255,
+                            raids[raid].low, 
+                            raids[raid].high
+                        )
+                        local myPOI = {}
+                        myPOI["position"] = CreateVector2D(raids[raid].entrance[1] / 100, raids[raid].entrance[2] / 100)
+                        myPOI["name"] = name
+                        myPOI["description"] = description
+                        myPOI["atlasName"] = "Raid"
+                        count = count + 1
+                        myPOIList[count] = myPOI
+                    end
+                end
+            end
+
+            return myPOIList  
+        end
     end
 end
 
@@ -601,7 +741,6 @@ end
 zones["Elwynn Forest"] = {
     low = 1,
     high = 10,
-    instances = {"The Stockade"},
     continent = Eastern_Kingdoms,
     faction = "Alliance",
     fishing_min = 1,
@@ -623,6 +762,7 @@ zones["Dun Morogh"] = {
     continent = Eastern_Kingdoms,
     faction = "Alliance",
     fishing_min = 1,
+    instances = {"Gnomeregan"},
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
     nodes = {"Copper Vein"}
 }
@@ -664,7 +804,6 @@ zones["Durotar"] = {
     low = 1,
     high = 10,
     continent = Kalimdor,
-    instances = {"Ragefire Chasm"},
     faction = "Horde",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal"},
@@ -855,7 +994,7 @@ zones["Stranglethorn Vale"] = {
     low = 30,
     high = 50,
     continent = Eastern_Kingdoms,
-    raids = {"Zul'Gurub"},
+--    raids = {"Zul'Gurub"},
     faction = "Contested",
     fishing_min = 130,
     herbs = {"Stranglekelp", "Wild Steelbloom", "Kingsblood", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Purple Lotus"},
@@ -952,8 +1091,6 @@ zones["Searing Gorge"] = {
     low = 43,
     high = 56,
     continent = Eastern_Kingdoms,
-    instances = {"Blackrock Depths", "Blackrock Spire"},
-    raids = {"Molten Core", "Blackwing Lair"},
     faction = "Contested",
     herbs = {"Firebloom"},
     nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit","Dark Iron Deposit", "Small Thorium Vein"}
@@ -1012,7 +1149,7 @@ zones["Silithus"] = {
     low = 55,
     high = 59,
     continent = Kalimdor,
-    raids = {"Ruins of Ahn'Qiraj", "Ahn'Qiraj"},
+--    raids = {"Ruins of Ahn'Qiraj", "Ahn'Qiraj"},
     faction = "Contested",
     fishing_min = 330,
     herbs = {"Sungrass", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Black Lotus"},
@@ -1136,21 +1273,21 @@ instances["Scarlet Monastery: Graveyard"] = {
     low = 26,
     high = 36,
     continent = Eastern_Kingdoms,
-    entrance = {84.88, 30.63}
+    entrance = {84.28, 30.63}
 }
 
 instances["Scarlet Monastery: Library"] = {
     low = 29,
     high = 39,
     continent = Eastern_Kingdoms,
-    entrance = {85.30, 32.17}
+    entrance = {85.30, 33}
 }
 
 instances["Scarlet Monastery: Armory"] = {
     low = 32,
     high = 42,
     continent = Eastern_Kingdoms,
-    entrance = {85.63, 31.62}
+    entrance = {85.83, 31.62}
 }
 
 instances["Scarlet Monastery: Cathedral"] = {
@@ -1208,7 +1345,7 @@ instances["Blackrock Spire"] = {
     low = 52,
     high = 60,
     continent = Eastern_Kingdoms,
-    entrance = {29, 38}
+    entrance = {28, 38}
 }
 
 instances["Stratholme"] = {
@@ -1223,7 +1360,7 @@ instances["Dire Maul: East"] = {
     low = 36,
     high = 46,
     continent = Kalimdor,
-    entrance = {58, 44}
+    entrance = {59.5, 44}
 }
 
 instances["Dire Maul: West"] = {
@@ -1237,7 +1374,7 @@ instances["Dire Maul: North"] = {
     low = 42,
     high = 52,
     continent = Kalimdor,
-    entrance = {58, 44}
+    entrance = {58.9, 41.5}
 }
 
 instances["Scholomance"] = {
@@ -1255,7 +1392,7 @@ raids["Molten Core"] = {
     high = 60,
     players = 40,
     continent = Eastern_Kingdoms,
-    entrance = {29, 38}
+    entrance = {30.5, 38}
 }
 
 raids["Onyxia's Lair"] = {
@@ -1271,7 +1408,7 @@ raids["Blackwing Lair"] = {
     high = 60,
     players = 40,
     continent = Eastern_Kingdoms,
-    entrance = {29, 38}
+    entrance = {29, 34}
 }
 
 raids["Zul'Gurub"] = {
@@ -1279,8 +1416,7 @@ raids["Zul'Gurub"] = {
     high = 60,
     players = 40,
     continent = Eastern_Kingdoms,
-    entrance = {51, 17},
-    fishing_min = 330
+    entrance = {53.9, 17.6}
 }
 
 raids["Ruins of Ahn'Qiraj"] = {
@@ -1296,7 +1432,7 @@ raids["Ahn'Qiraj"] = {
     high = 60,
     players = 40,
     continent = Kalimdor,
-    entrance = {29, 93}
+    entrance = {28.6, 92.4}
 }
 
 raids["Naxxramas"] = {
