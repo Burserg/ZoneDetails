@@ -11,6 +11,7 @@ This addon is designed for WoW Classic.
 * [x] Add Battleground information where applicable
 * [ ] Add Localization support
 * [x] Nodes available in given zone for Herbalism and Mining 
+* [x] Add Profile support
 * [x] Add options page
     * [x] Toggles for pins
     * [x] Profession Toggles

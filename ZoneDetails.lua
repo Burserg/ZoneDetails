@@ -87,110 +87,135 @@ local options = {
     name = "ZoneDetails",
     handler = ZoneDetails,
     type = "group",
+    childGroups = "tab",
     get = function(k) return db[k.arg] end,
     set = function(k, v) db[k.arg] = v end,
     args = {
-        generalHeader = {
-            type = "header",
-            name = "General Settings",
+        msgSettings = {
+            type = "group",
+            name = "Greetings Message",
+            desc = "Display settings for Hearth greeting",
             order = 0,
+            args = {
+                msgHeader = {
+                    type = "header",
+                    name = "Greetings message",
+                    order = 0,
+                },
+                showmsg = {
+                    type = "input",
+                    name = "Message",
+                    order = 1,
+                    arg = "message",
+                    desc = "The Message to be displayed when you enter the area where your Hearthstone is set.",
+                    width = "full"
+                },
+                showInChat = {
+                    type = "toggle",
+                    name = "Show Message",
+                    order = 2,
+                    arg = "showInChat",
+                    desc = "Toggles the display of greeting message.",
+                },
+            }
         },
-        msg = {
-            type = "input",
-            name = "Welcome Message",
-            order = 1,
-            arg = "message",
-            desc = "The Message to be displayed when you enter the area where your Hearthstone is set.",
-            width = "full"
-        },
-        showInChat = {
-            type = "toggle",
-            name = "Show Message",
-            order = 2,
-            arg = "showInChat",
-            desc = "Toggles the display of welcome messages in the chat window.",
-        },
-        mapOptions = {
-            type = "header",
+        mapSettings = {
+            type = "group",
             name = "Map Settings",
-            order = 3,
-        },
-        showInstances = {
-            type = "toggle",
-            order = 4,
-            name = "Show Instance Text",
-            arg = "showInstances",
-            desc = "Toggles the display of instances that can be found in current zone.",
-            width = "full",
-        },
-        showInstancePins = {
-            type = "toggle",
-            order = 5,
-            name = "Show Instance Entrance",
-            arg = "showInstancePins",
-            desc = "Toggles the display of instance entrance.",
-            width = "full",
-        },
-        showRaids = {
-            type = "toggle",
-            order = 6,
-            name = "Show Raids",
-            arg = "showRaids",
-            desc = "Toggles the display of raids.",
-            width = "full",
-        },
-        showRaidPins = {
-            type = "toggle",
-            order = 7,
-            name = "Show Raid Entrance",
-            arg = "showRaidPins",
-            desc = "Toggles the display of raid entrance.",
-            width = "full",
-        },
-        showBattlegrounds = {
-            type = "toggle",
-            order = 8,
-            name = "Show Battlegrounds",
-            arg = "showBattlegrounds",
-            desc = "Toggles the display of battlegrounds.",
-            width = "full",
+            desc = "Items displayed on the map",
+            order = 1,
+            args = {
+                mapHeader = {
+                    type = "header",
+                    name = "Map Settings",
+                    order = 0,
+                },
+                showInstances = {
+                    type = "toggle",
+                    order = 1,
+                    name = "Show Instance Text",
+                    arg = "showInstances",
+                    desc = "Toggles the display of instances that can be found in current zone.",
+                    width = "full",
+                },
+                showInstancePins = {
+                    type = "toggle",
+                    order = 2,
+                    name = "Show Instance Entrance",
+                    arg = "showInstancePins",
+                    desc = "Toggles the display of instance entrance.",
+                    width = "full",
+                },
+                showRaids = {
+                    type = "toggle",
+                    order = 3,
+                    name = "Show Raid Text",
+                    arg = "showRaids",
+                    desc = "Toggles the display of raids.",
+                    width = "full",
+                },
+                showRaidPins = {
+                    type = "toggle",
+                    order = 4,
+                    name = "Show Raid Entrance",
+                    arg = "showRaidPins",
+                    desc = "Toggles the display of raid entrance.",
+                    width = "full",
+                },
+                showBattlegrounds = {
+                    type = "toggle",
+                    order = 5,
+                    name = "Show Battlegrounds",
+                    arg = "showBattlegrounds",
+                    desc = "Toggles the display of battlegrounds.",
+                    width = "full",
+                },
+            }
         },
         professionOptions = {
-            type = "header",
+            type = "group",
             name = "Profession Settings",
-            order = 9,
-        },
-        showFishing = {
-            type = "toggle",
-            order = 10,
-            name = "Show Fishing",
-            arg = "showFishing",
-            desc = "Toggles the display of Fishing Skill on the map.",
-            width = "full",
-        },
-        showHerbs = {
-            type = "toggle",
-            order = 11,
-            name = "Show Herbs",
-            arg = "showHerbs",
-            desc = "Toggles the display of herbs that can be found in current zone.",
-            width = "full",
-        },
-        showMineNodes = {
-            type = "toggle",
-            order = 12,
-            name = "Show Minerals",
-            arg = "showMineNodes",
-            desc = "Toggles the display of minerals that can be found in current zone.",
-            width = "full",
-        },
-        showSkinning = {
-            type = "toggle",
-            order = 13,
-            name = "Show Skins (NYI)",
-            arg = "showSkinning",
-            desc = "Toggles the display of skins that can be found in current zone.",
-            width = "full",
+            desc = "Profession details displayed on the map",
+            order = 2,
+            args = {
+                profHeader = {
+                    type = "header",
+                    name = "Profession Settings",
+                    order = 0,
+                },
+                showFishing = {
+                    type = "toggle",
+                    order = 1,
+                    name = "Show Fishing",
+                    arg = "showFishing",
+                    desc = "Toggles the display of Fishing Skill on the map.",
+                    width = "full",
+                },
+                showHerbs = {
+                    type = "toggle",
+                    order = 2,
+                    name = "Show Herbs",
+                    arg = "showHerbs",
+                    desc = "Toggles the display of herbs that can be found in current zone.",
+                    width = "full",
+                },
+                showMineNodes = {
+                    type = "toggle",
+                    order = 3,
+                    name = "Show Minerals",
+                    arg = "showMineNodes",
+                    desc = "Toggles the display of minerals that can be found in current zone.",
+                    width = "full",
+                },
+                showSkinning = {
+                    type = "toggle",
+                    order = 4,
+                    name = "Show Skins (NYI)",
+                    arg = "showSkinning",
+                    desc = "Toggles the display of skins that can be found in current zone.",
+                    width = "full",
+                },
+            }
         },
     }
 }
@@ -305,8 +330,6 @@ function ZoneDetailsPinDataProviderMixin:RefreshAllData(fromOnShow)
     end
 end
 
-
-
 function ZoneDetailsGlobalPinMixin:OnAcquired(myInfo)
     BaseMapPoiPinMixin.OnAcquired(self, myInfo)
 end
@@ -328,15 +351,24 @@ function ZoneDetails:OnDisable()
 end
 
 function ZoneDetails:OnInitialize()
-    self.db = LibStub("AceDB-3.0"):New("ZoneDetailsDB", defaults, true)
+    self.db = LibStub("AceDB-3.0"):New("ZoneDetailsDB", defaults)
     db = self.db.profile
     -- Called when the addon is loaded
     LibStub("AceConfig-3.0"):RegisterOptionsTable("ZoneDetails", options)
+    options.args.profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db)
     self.optionsFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("ZoneDetails", "ZoneDetails")
     self:RegisterChatCommand("zonedetails", function() InterfaceOptionsFrame_OpenToCategory(self.optionsFrame) end)
     self:RegisterChatCommand("zd", function() InterfaceOptionsFrame_OpenToCategory(self.optionsFrame) end)
     self:RegisterEvent("ZONE_CHANGED")
     self:RegisterEvent('PLAYER_LEVEL_CHANGED')
+
+    self.db.RegisterCallback(self, "OnProfileChanged", "Refresh")
+	self.db.RegisterCallback(self, "OnProfileCopied", "Refresh")
+	self.db.RegisterCallback(self, "OnProfileReset", "Refresh")
+end
+
+function ZoneDetails:Refresh()
+    db = self.db.profile
 end
 
 function ZoneDetails:GetZoneDetails()
