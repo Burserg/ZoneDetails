@@ -1,0 +1,53 @@
+local debug = false
+
+local L = LibStub("AceLocale-3.0"):NewLocale("ZoneDetails", "enUS", true, debug)
+
+if not L then return end
+--
+L["Greetings Message"] = true
+L["Display settings for Hearth greeting"] = true
+L["Message"] = true
+L["The Message to be displayed when you enter the area where your Hearthstone is set."] = true
+L["Show Message"] = true
+L["Toggles the display of greeting message."] = true
+L["Map Settings"] = true
+L["Items displayed on the map"] = true
+L["Show Instance Text"] = true
+L["Toggles the display of instances that can be found in current zone."] = true
+L["Show Instance Entrance"] = true
+L["Toggles the display of instance entrance."] = true
+L["Show Raid Text"] = true
+L["Toggles the display of raids."] = true
+L["Show Raid Entrance"] = true
+L["Toggles the display of raid entrance."] = true
+L["Show Battlegrounds"] = true
+L["Toggles the display of battlegrounds."] = true
+L["Profession Settings"] = true
+L["Profession details displayed on the map"] = true
+L["Show Fishing"] = true
+L["Toggles the display of Fishing Skill on the map."] = true
+L["Show Herbs"] = true
+L["Toggles the display of herbs that can be found in current zone."] = true
+L["Show Minerals"] = true
+L["Toggles the display of minerals that can be found in current zone."] = true
+L["Show Skins (NYI)"] = true
+L["Toggles the display of skins that can be found in current zone."] = true
+L["Instances"] = true
+L["Battlegrounds"] = true
+L["Raids"] = true
+L["Man"] = true
+L["Leatherworking"] = true
+L["Tailoring"] = true
+L["Alchemy"] = true
+L["Engineering"] = true
+L["Blacksmithing"] = true
+L["Enchanting"] = true
+L["Cooking"] = true
+L["First Aid"] = true
+L["Mining"] = true
+L["Skinning"] = true
+L["Herbalism"] = true
+L["Fishing"] = true
+L["Fishing Minimum"] = true
+L["Herbs"] = true
+L["Nodes"] = true

@@ -1,11 +1,12 @@
 --[[
 -- Credit to ckknight for originally writing Cartographer_ZoneDetails
--- Credit to phyber for writing Cromulent
+-- Credit to phyber for maintaining Cromulent
 --]]
 print("Addon loaded")
 ZoneDetails = LibStub("AceAddon-3.0"):NewAddon("ZoneDetails", "AceConsole-3.0", "AceEvent-3.0", "AceHook-3.0")
 ZoneDetailsGlobalPinMixin = BaseMapPoiPinMixin:CreateSubPin("PIN_FRAME_LEVEL_DUNGEON_ENTRANCE")
 
+local L = LibStub("AceLocale-3.0"):GetLocale("ZoneDetails")
 local AceGUI = LibStub("AceGUI-3.0")
 local ZoneDetailsDataProviderMixin = CreateFromMixins(MapCanvasDataProviderMixin)
 local ZoneDetailsPinDataProviderMixin = CreateFromMixins(MapCanvasDataProviderMixin)
@@ -14,10 +15,242 @@ local WORLDMAP_ZONE = Enum.UIMapType.Zone
 local WORLDMAP_AZEROTH_ID = 947
 local playerLevel =  UnitLevel("player")
 local db
+local GAME_LOCALE = GetLocale()
+
+-- Localized Zone and Localized Zone Reverse Lookup tables
+local Z = {}
+local ZR = {}
+
+
+-- Came from LibTourist.
+
+-- Map ID / Locale lookup.
+local MapIdLookupTable = {
+    [947] = "Azeroth",
+    [1411] = "Durotar",
+    [1412] = "Mulgore",
+    [1413] = "The Barrens",
+    [1414] = "Kalimdor",
+    [1415] = "Eastern Kingdoms",
+    [1416] = "Alterac Mountains",
+    [1417] = "Arathi Highlands",
+    [1418] = "Badlands",
+    [1419] = "Blasted Lands",
+    [1420] = "Tirisfal Glades",
+    [1421] = "Silverpine Forest",
+    [1422] = "Western Plaguelands",
+    [1423] = "Eastern Plaguelands",
+    [1424] = "Hillsbrad Foothills",
+    [1425] = "The Hinterlands",
+    [1426] = "Dun Morogh",
+    [1427] = "Searing Gorge",
+    [1428] = "Burning Steppes",
+    [1429] = "Elwynn Forest",
+    [1430] = "Deadwind Pass",
+    [1431] = "Duskwood",
+    [1432] = "Loch Modan",
+    [1433] = "Redridge Mountains",
+    [1434] = "Stranglethorn Vale",
+    [1435] = "Swamp of Sorrows",
+    [1436] = "Westfall",
+    [1437] = "Wetlands",
+    [1438] = "Teldrassil",
+    [1439] = "Darkshore",
+    [1440] = "Ashenvale",
+    [1441] = "Thousand Needles",
+    [1442] = "Stonetalon Mountains",
+    [1443] = "Desolace",
+    [1444] = "Feralas",
+    [1445] = "Dustwallow Marsh",
+    [1446] = "Tanaris",
+    [1447] = "Azshara",
+    [1448] = "Felwood",
+    [1449] = "Un'Goro Crater",
+    [1450] = "Moonglade",
+    [1451] = "Silithus",
+    [1452] = "Winterspring",
+    [1453] = "Stormwind City",
+    [1454] = "Orgrimmar",
+    [1455] = "Ironforge",
+    [1456] = "Thunder Bluff",
+    [1457] = "Darnassus",
+    [1458] = "Undercity",
+    [1459] = "Alterac Valley",
+    [1460] = "Warsong Gulch",
+    [1461] = "Arathi Basin",
+    [1463] = "Eastern Kingdoms",
+    [1464] = "Kalimdor",
+
+-- NOTE: The following are InstanceIDs, as Instances do not have a uiMapID in Classic
+    [30] = "Alteric Valley",
+    [33] = "Shadowfang Keep",
+    [34] = "The Stockade",
+    [36] = "The Deadmines",
+    [43] = "Wailing Caverns",
+    [47] = "Razorfen Kraul",
+    [48] = "Blackfathom Deeps",
+    [70] = "Uldaman",
+    [90] = "Gnomeregan",
+    [109] = "The Temple of Atal'Hakkar",
+    [129] = "Razorfen Downs",
+    [209] = "Zul'Farrak",
+    [229] = "Blackrock Spire",
+    [230] = "Blackrock Depths",
+    [329] = "Stratholme",
+    [349] = "Maraudon",
+    [369] = "Deeprun Tram",
+    [389] = "Ragefire Chasm",
+    [409] = "Molten Core",
+    [429] = "Dire Maul",
+    [469] = "Blackwing Lair",
+    [489] = "Warsong Gulch",
+    [509] = "Ruins of Ahn'Qiraj",
+    [529] = "Arathi Basin",
+    [531] = "Ahn'Qiraj Temple",
+    [533] = "Naxxramas",
+    [1004] = "Scarlet Monastery",
+    [1007] = "Scholomance",
+}
+
+-- Translate instances that we don't have details on. This came from LibTourist3.0
+local zoneTranslation = {
+	enUS = {
+		-- Dungeons
+		[5914] = "Dire Maul - East",
+		[5913] = "Dire Maul - North",
+		[5915] = "Dire Maul - West",
+	},
+	deDE = {
+		-- Dungeons
+		[5914] = "Düsterbruch - Ost",
+		[5913] = "Düsterbruch - Nord",
+		[5915] = "Düsterbruch - West",
+	},
+	esES = {
+		-- Dungeons
+		[5914] = "La Masacre: Este",
+		[5913] = "La Masacre: Norte",
+		[5915] = "La Masacre: Oeste",
+	},
+	esMX = {
+		-- Dungeons
+		[5914] = "La Masacre: Este",
+		[5913] = "La Masacre: Norte",
+		[5915] = "La Masacre: Oeste",
+	},
+	frFR = {
+		-- Dungeons
+		[5914] = "Haches-Tripes - Est",
+		[5913] = "Haches-Tripes - Nord",
+		[5915] = "Haches-Tripes - Ouest",
+	},
+	itIT = {
+		-- Dungeons
+		[5914] = "Maglio Infausto - Est",
+		[5913] = "Maglio Infausto - Nord",
+		[5915] = "Maglio Infausto - Ovest",
+	},
+	koKR = {
+		-- Dungeons
+		[5914] = "혈투의 전장 - 동쪽",
+		[5913] = "혈투의 전장 - 북쪽",
+		[5915] = "혈투의 전장 - 서쪽",
+	},
+	ptBR = {
+		-- Dungeons
+		[5914] = "Gládio Cruel – Leste",
+		[5913] = "Gládio Cruel – Norte",
+		[5915] = "Gládio Cruel – Oeste",
+	},
+	ruRU = {
+		-- Dungeons
+		[5914] = "Забытый город – восток",
+		[5913] = "Забытый город – север",
+		[5915] = "Забытый город – запад",
+	},
+	zhCN = {
+		-- Dungeons
+		[5914] = "厄运之槌 - 东",
+		[5913] = "厄运之槌 - 北",
+		[5915] = "厄运之槌 - 西",
+	},
+	zhTW = {
+		-- Dungeons
+		[5914] = "厄運之槌 - 東方",
+		[5913] = "厄運之槌 - 北方",
+		[5915] = "厄運之槌 - 西方",
+	},
+}
+
+local function dbg(msg)
+    DEFAULT_CHAT_FRAME:AddMessage(msg)
+end
+
+local function CreateLocalizedZoneNameLookups()
+	local uiMapID
+	local mapInfo
+	local localizedZoneName
+	local englishZoneName
+
+-- Goes through all map IDs and fills any that are missing.. This came from LibTourist3.0 (incompatible with Classic)
+	for uiMapID = 900, 1500, 1 do
+		mapInfo = C_Map.GetMapInfo(uiMapID)
+		if mapInfo then
+			localizedZoneName = mapInfo.name
+			englishZoneName = MapIdLookupTable[uiMapID]
+
+			if englishZoneName then
+				-- Add combination of English and localized name to lookup tables
+				if not Z[englishZoneName] then
+					Z[englishZoneName] = localizedZoneName
+				end
+				if not ZR[localizedZoneName] then
+					ZR[localizedZoneName] = englishZoneName
+				end
+			else
+				-- Not in lookup
+				dbg("|r|cffff4422! -- ZoneDetails:|r English name not found in lookup for uiMapID "..tostring(uiMapID).." ("..tostring(localizedZoneName)..")" )
+			end
+		end
+	end
+
+	for instanceID = 1, 1100, 1 do
+		localizedZoneName = GetRealZoneText(instanceID);
+		if localizedZoneName then
+			englishZoneName = MapIdLookupTable[instanceID]
+
+			if englishZoneName then
+				-- Add combination of English and localized name to lookup tables
+				if not Z[englishZoneName] then
+					Z[englishZoneName] = localizedZoneName
+				end
+				if not ZR[localizedZoneName] then
+					ZR[localizedZoneName] = englishZoneName
+				end
+			else
+				-- Not in lookup
+				dbg("|r|cffff4422! -- ZoneDetails:|r English name not found in lookup for instanceID "..tostring(instanceID).." ("..tostring(localizedZoneName)..")" )
+			end
+		end
+	end
+
+	-- Load from zoneTranslation
+	local GAME_LOCALE = GetLocale()
+	for key, localizedZoneName in pairs(zoneTranslation[GAME_LOCALE]) do
+		local englishName = zoneTranslation["enUS"][key]
+		if not Z[englishName] then
+			Z[englishName] = localizedZoneName
+		end
+		if not ZR[localizedZoneName] then
+			ZR[localizedZoneName] = englishName
+		end
+	end
+end
 
 local isAlliance, isHorde, isNeutral
 
 do
+    CreateLocalizedZoneNameLookups()
 	local faction = UnitFactionGroup("player")
 	isAlliance = faction == "Alliance"
 	isHorde = faction == "Horde"
@@ -35,18 +268,18 @@ local skins = {}
 local fishes = {}
 
 local profs = {
-    "Leatherworking",
-    "Tailoring",
-    "Alchemy",
-    "Engineering",
-    "Blacksmithing",
-    "Enchanting",
-    "Cooking",
-    "First Aid",
-    "Mining",
-    "Skinning",
-    "Herbalism",
-    "Fishing"
+    L["Leatherworking"],
+    L["Tailoring"],
+    L["Alchemy"],
+    L["Engineering"],
+    L["Blacksmithing"],
+    L["Enchanting"],
+    L["Cooking"],
+    L["First Aid"],
+    L["Mining"],
+    L["Skinning"],
+    L["Herbalism"],
+    L["Fishing"]
 }
 
 local Azeroth = "Azeroth"
@@ -83,6 +316,7 @@ local defaults = {
     }
 }
 
+
 local options = {
     name = "ZoneDetails",
     handler = ZoneDetails,
@@ -93,126 +327,126 @@ local options = {
     args = {
         msgSettings = {
             type = "group",
-            name = "Greetings Message",
-            desc = "Display settings for Hearth greeting",
+            name = L["Greetings Message"],
+            desc = L["Display settings for Hearth greeting"],
             order = 0,
             args = {
                 msgHeader = {
                     type = "header",
-                    name = "Greetings message",
+                    name = L["Greetings Message"],
                     order = 0,
                 },
                 showmsg = {
                     type = "input",
-                    name = "Message",
+                    name = L["Message"],
                     order = 1,
                     arg = "message",
-                    desc = "The Message to be displayed when you enter the area where your Hearthstone is set.",
+                    desc = L["The Message to be displayed when you enter the area where your Hearthstone is set."],
                     width = "full"
                 },
                 showInChat = {
                     type = "toggle",
-                    name = "Show Message",
+                    name = L["Show Message"],
                     order = 2,
                     arg = "showInChat",
-                    desc = "Toggles the display of greeting message.",
+                    desc = L["Toggles the display of greeting message."],
                 },
             }
         },
         mapSettings = {
             type = "group",
-            name = "Map Settings",
-            desc = "Items displayed on the map",
+            name = L["Map Settings"],
+            desc = L["Items displayed on the map"],
             order = 1,
             args = {
                 mapHeader = {
                     type = "header",
-                    name = "Map Settings",
+                    name = L["Map Settings"],
                     order = 0,
                 },
                 showInstances = {
                     type = "toggle",
                     order = 1,
-                    name = "Show Instance Text",
+                    name = L["Show Instance Text"],
                     arg = "showInstances",
-                    desc = "Toggles the display of instances that can be found in current zone.",
+                    desc = L["Toggles the display of instances that can be found in current zone."],
                     width = "full",
                 },
                 showInstancePins = {
                     type = "toggle",
                     order = 2,
-                    name = "Show Instance Entrance",
+                    name = L["Show Instance Entrance"],
                     arg = "showInstancePins",
-                    desc = "Toggles the display of instance entrance.",
+                    desc = L["Toggles the display of instance entrance."],
                     width = "full",
                 },
                 showRaids = {
                     type = "toggle",
                     order = 3,
-                    name = "Show Raid Text",
+                    name = L["Show Raid Text"],
                     arg = "showRaids",
-                    desc = "Toggles the display of raids.",
+                    desc = L["Toggles the display of raids."],
                     width = "full",
                 },
                 showRaidPins = {
                     type = "toggle",
                     order = 4,
-                    name = "Show Raid Entrance",
+                    name = L["Show Raid Entrance"],
                     arg = "showRaidPins",
-                    desc = "Toggles the display of raid entrance.",
+                    desc = L["Toggles the display of raid entrance."],
                     width = "full",
                 },
                 showBattlegrounds = {
                     type = "toggle",
                     order = 5,
-                    name = "Show Battlegrounds",
+                    name = L["Show Battlegrounds"],
                     arg = "showBattlegrounds",
-                    desc = "Toggles the display of battlegrounds.",
+                    desc = L["Toggles the display of battlegrounds."],
                     width = "full",
                 },
             }
         },
         professionOptions = {
             type = "group",
-            name = "Profession Settings",
-            desc = "Profession details displayed on the map",
+            name = L["Profession Settings"],
+            desc = L["Profession details displayed on the map"],
             order = 2,
             args = {
                 profHeader = {
                     type = "header",
-                    name = "Profession Settings",
+                    name = L["Profession Settings"],
                     order = 0,
                 },
                 showFishing = {
                     type = "toggle",
                     order = 1,
-                    name = "Show Fishing",
+                    name = L["Show Fishing"],
                     arg = "showFishing",
-                    desc = "Toggles the display of Fishing Skill on the map.",
+                    desc = L["Toggles the display of Fishing Skill on the map."],
                     width = "full",
                 },
                 showHerbs = {
                     type = "toggle",
                     order = 2,
-                    name = "Show Herbs",
+                    name = L["Show Herbs"],
                     arg = "showHerbs",
-                    desc = "Toggles the display of herbs that can be found in current zone.",
+                    desc = L["Toggles the display of herbs that can be found in current zone."],
                     width = "full",
                 },
                 showMineNodes = {
                     type = "toggle",
                     order = 3,
-                    name = "Show Minerals",
+                    name = L["Show Minerals"],
                     arg = "showMineNodes",
-                    desc = "Toggles the display of minerals that can be found in current zone.",
+                    desc = L["Toggles the display of minerals that can be found in current zone."],
                     width = "full",
                 },
                 showSkinning = {
                     type = "toggle",
                     order = 4,
-                    name = "Show Skins (NYI)",
+                    name = L["Show Skins (NYI)"],
                     arg = "showSkinning",
-                    desc = "Toggles the display of skins that can be found in current zone.",
+                    desc = L["Toggles the display of skins that can be found in current zone."],
                     width = "full",
                 },
             }
@@ -220,9 +454,6 @@ local options = {
     }
 }
 
-function dbg(msg)
-    DEFAULT_CHAT_FRAME:AddMessage(msg)
-end
 
 -- Use Blizzard MixIns function to add a new overlay to the Map Frane
 function ZoneDetailsDataProviderMixin:OnAdded(mapCanvas)
@@ -341,6 +572,7 @@ function ZoneDetailsGlobalPinMixin:OnMouseUp(btn)
 end
 
 function ZoneDetails:OnEnable()
+
     WorldMapFrame:AddDataProvider(ZoneDetailsDataProviderMixin)
     WorldMapFrame:AddDataProvider(ZoneDetailsPinDataProviderMixin)
 end
@@ -364,7 +596,7 @@ function ZoneDetails:OnInitialize()
 
     self.db.RegisterCallback(self, "OnProfileChanged", "Refresh")
 	self.db.RegisterCallback(self, "OnProfileCopied", "Refresh")
-	self.db.RegisterCallback(self, "OnProfileReset", "Refresh")
+    self.db.RegisterCallback(self, "OnProfileReset", "Refresh")
 end
 
 function ZoneDetails:Refresh()
@@ -421,7 +653,7 @@ function ZoneDetails:GetZoneDetails()
             -- Do work to get zone name, level, faction, and any instances/raids.
             if db.showInstances then
                 if zones[mapName].instances then
-                    zoneText = zoneText..("\n|cffffff00%s:|r"):format("Instances")
+                    zoneText = zoneText..("\n|cffffff00%s:|r"):format(L["Instances"])
                     for _, instance in ipairs(zones[mapName].instances) do
                         local r2, g2, b2 = ZoneDetails:LevelColor(instances[instance].low, instances[instance].high, playerLevel)
                         local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
@@ -442,11 +674,11 @@ function ZoneDetails:GetZoneDetails()
             
             if db.showBattlegrounds then
                 if zones[mapName].battlegrounds then
-                    zoneText = zoneText..("\n|cffffff00%s:|r"):format("Battlegrounds")
+                    zoneText = zoneText..("\n|cffffff00%s:|r"):format(L["Battlegrounds"])
                     for _, battleground in ipairs(zones[mapName].battlegrounds) do
                         local r2, g2, b2 = ZoneDetails:LevelColor(battlegrounds[battleground].low, battlegrounds[battleground].high, playerLevel)
                         local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
-                        zoneText = zoneText ..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r   %s-Man"):format(
+                        zoneText = zoneText ..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r   %s-%s"):format(
                             r1*255,
                             g1*255,
                             b2*255,
@@ -456,7 +688,8 @@ function ZoneDetails:GetZoneDetails()
                             b2*255,                        
                             battlegrounds[battleground].low,
                             battlegrounds[battleground].high,
-                            battlegrounds[battleground].players
+                            battlegrounds[battleground].players,
+                            L["Man"]
                         )
                     end
                 end
@@ -464,11 +697,11 @@ function ZoneDetails:GetZoneDetails()
 
             if db.showRaids then
                 if zones[mapName].raids then
-                    zoneText = zoneText..("\n|cffffff00%s:|r"):format("Raids")
+                    zoneText = zoneText..("\n|cffffff00%s:|r"):format(L["Raids"])
                     for _, raid in ipairs(zones[mapName].raids) do
                         local r2, g2, b2 = ZoneDetails:LevelColor(raids[raid].low, raids[raid].high, playerLevel)
                         local r1, g1, b1 = ZoneDetails:GetFactionColor(mapName)
-                        zoneText = zoneText ..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d]|r   %s-Man"):format(
+                        zoneText = zoneText ..("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d]|r   %s-%s"):format(
                             r1*255,
                             g1*255,
                             b2*255,
@@ -477,7 +710,8 @@ function ZoneDetails:GetZoneDetails()
                             g2*255,
                             b2*255,                        
                             raids[raid].high,
-                            raids[raid].players
+                            raids[raid].players,
+                            L["Man"]
                         )
                     end
                 end
@@ -525,16 +759,16 @@ function ZoneDetails:GetProfessionDetails()
 
     else
         if mapInfo.mapType == WORLDMAP_ZONE  then
-            if profs["Mining"] or profs["Herbalism"] or profs["Fishing"] then
+            if profs[L["Mining"]] or profs[L["Herbalism"]] or profs[L["Fishing"]] then
                 profText = ("\n|cffffff00%s:|r"):format("Professions")
             else
                 profText = ""
             end
             if db.showFishing and zones[mapName].fishing_min then
-                if profs["Fishing"] then
-                    local r, g, b = ZoneDetails:FishingColor(zones[mapName].fishing_min, profs["Fishing"])
+                if profs[L["Fishing"]] then
+                    local r, g, b = ZoneDetails:FishingColor(zones[mapName].fishing_min, profs[L["Fishing"]])
                     profText = profText ..("\n|cffffff00%s|r |cff%02x%02x%02x[%d]|r\n"):format(
-                        "Fishing Minimum",
+                        L["Fishing Minimum"],
                         r*255,
                         g*255,
                         b*255,
@@ -544,10 +778,10 @@ function ZoneDetails:GetProfessionDetails()
             end
 
             if db.showHerbs and zones[mapName].herbs then
-                if profs["Herbalism"] then
-                    profText = profText..("\n|cffffff00%s:|r"):format("Herbs")
+                if profs[L["Herbalism"]] then
+                    profText = profText..("\n|cffffff00%s:|r"):format(L["Herbs"])
                     for _, herb in ipairs(zones[mapName].herbs) do
-                        local r, g, b = ZoneDetails:LevelColor(herbs[herb].low, herbs[herb].high, profs["Herbalism"])
+                        local r, g, b = ZoneDetails:LevelColor(herbs[herb].low, herbs[herb].high, profs[L["Herbalism"]])
                         profText = profText ..("\n%s |cff%02x%02x%02x[%d-%d]|r"):format(
                             herb,
                             r*255,
@@ -561,10 +795,10 @@ function ZoneDetails:GetProfessionDetails()
             end
 
             if db.showMineNodes and zones[mapName].nodes then
-                if profs["Mining"] then
-                    profText = profText..("\n|cffffff00%s:|r"):format("Nodes")
+                if profs[L["Mining"]] then
+                    profText = profText..("\n|cffffff00%s:|r"):format(L["Nodes"])
                     for _, node in ipairs(zones[mapName].nodes) do
-                        local r, g, b = ZoneDetails:LevelColor(nodes[node].low, nodes[node].high, profs["Mining"])
+                        local r, g, b = ZoneDetails:LevelColor(nodes[node].low, nodes[node].high, profs[L["Mining"]])
                         profText = profText ..("\n%s |cff%02x%02x%02x[%d-%d]|r"):format(
                             node,
                             r*255,
@@ -770,7 +1004,7 @@ end
 
 -- Alliance
 
-zones["Elwynn Forest"] = {
+zones[Z["Elwynn Forest"]] = {
     low = 1,
     high = 10,
     continent = Eastern_Kingdoms,
@@ -779,7 +1013,7 @@ zones["Elwynn Forest"] = {
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
     nodes = {"Copper Vein"}
 }
-zones["Teldrassil"] = {
+zones[Z["Teldrassil"]] = {
     low = 1,
     high = 11,
     continent = Kalimdor,
@@ -788,7 +1022,7 @@ zones["Teldrassil"] = {
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"}
 }
 
-zones["Dun Morogh"] = {
+zones[Z["Dun Morogh"]] = {
     low = 1,
     high = 12,
     continent = Eastern_Kingdoms,
@@ -799,7 +1033,7 @@ zones["Dun Morogh"] = {
     nodes = {"Copper Vein"}
 }
 
-zones["Westfall"] = {
+zones[Z["Westfall"]] = {
     low = 9,
     high = 18,
     continent = Eastern_Kingdoms,
@@ -810,7 +1044,7 @@ zones["Westfall"] = {
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein"}
 }
 
-zones["Loch Modan"] = {
+zones[Z["Loch Modan"]] = {
     low = 10,
     high = 18,
     continent = Eastern_Kingdoms,
@@ -820,7 +1054,7 @@ zones["Loch Modan"] = {
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein"}
 }
 
-zones["Darkshore"] = {
+zones[Z["Darkshore"]] = {
     low = 11,
     high = 19,
     continent = Eastern_Kingdoms,
@@ -832,7 +1066,7 @@ zones["Darkshore"] = {
 
 -- Horde 
 
-zones["Durotar"] = {
+zones[Z["Durotar"]] = {
     low = 1,
     high = 10,
     continent = Kalimdor,
@@ -842,7 +1076,7 @@ zones["Durotar"] = {
     nodes = {"Copper Vein"}
 }
 
-zones["Mulgore"] = {
+zones[Z["Mulgore"]] = {
     low = 1,
     high = 10,
     continent = Kalimdor,
@@ -852,7 +1086,7 @@ zones["Mulgore"] = {
     nodes = {"Copper Vein"}
 }
 
-zones["Tirisfal Glades"] = {
+zones[Z["Tirisfal Glades"]] = {
     low = 1,
     high = 12,
     continent = Eastern_Kingdoms,
@@ -863,7 +1097,7 @@ zones["Tirisfal Glades"] = {
     nodes = {"Copper Vein"}
 }
 
-zones["Silverpine Forest"] = {
+zones[Z["Silverpine Forest"]] = {
     low = 10,
     high = 20,
     instances = {"Shadowfang Keep"},
@@ -874,7 +1108,7 @@ zones["Silverpine Forest"] = {
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein"}
 }
 
-zones["The Barrens"] = {
+zones[Z["The Barrens"]] = {
     low = 10,
     high = 33,
     continent = Kalimdor,
@@ -888,7 +1122,7 @@ zones["The Barrens"] = {
 
 -- Contested
 
-zones["Duskwood"] = {
+zones[Z["Duskwood"]] = {
     low = 10,
     high = 30,
     continent = Eastern_Kingdoms,
@@ -898,7 +1132,7 @@ zones["Duskwood"] = {
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein"}
 }
 
-zones["Moonglade"] = {
+zones[Z["Moonglade"]] = {
     low = 10,
     high = 60,
     continent = Kalimdor,
@@ -906,7 +1140,7 @@ zones["Moonglade"] = {
     fishing_min = 205
 }
 
-zones["Stonetalon Mountains"] = {
+zones[Z["Stonetalon Mountains"]] = {
     low = 15,
     high = 25,
     continent = Kalimdor,
@@ -916,7 +1150,7 @@ zones["Stonetalon Mountains"] = {
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
-zones["Redridge Mountains"] = {
+zones[Z["Redridge Mountains"]] = {
     low = 15,
     high = 25,
     continent = Eastern_Kingdoms,
@@ -926,7 +1160,7 @@ zones["Redridge Mountains"] = {
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein"}
 }
 
-zones["Ashenvale"] = {
+zones[Z["Ashenvale"]] = {
     low = 19,
     high = 30,
     instances = {"Blackfathom Deeps"},
@@ -938,7 +1172,7 @@ zones["Ashenvale"] = {
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein"}
 }
 
-zones["Wetlands"] = {
+zones[Z["Wetlands"]] = {
     low = 20,
     high = 30,
     continent = Eastern_Kingdoms,
@@ -948,7 +1182,7 @@ zones["Wetlands"] = {
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein"}
 }
 
-zones["Hillsbrad Foothills"] = {
+zones[Z["Hillsbrad Foothills"]] = {
     low = 20,
     high = 31,
     continent = Eastern_Kingdoms,
@@ -959,7 +1193,7 @@ zones["Hillsbrad Foothills"] = {
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit"}
 }
 
-zones["Alterac Mountains"] = {
+zones[Z["Alterac Mountains"]] = {
     low = 27,
     high = 39,
     continent = Eastern_Kingdoms,
@@ -970,7 +1204,7 @@ zones["Alterac Mountains"] = {
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
-zones["Thousand Needles"] = {
+zones[Z["Thousand Needles"]] = {
     low = 24,
     high = 35,
     continent = Kalimdor,
@@ -980,7 +1214,7 @@ zones["Thousand Needles"] = {
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Ooze Covered Silver Vein", "Iron Deposit", "Gold Vein", "Ooze Covered Gold Vein", "Mithril Deposit", "Ooze Covered Mithril Deposit"}
 }
 
-zones["Desolace"] = {
+zones[Z["Desolace"]] = {
     low = 30,
     high = 39,
     continent = Kalimdor,
@@ -991,7 +1225,7 @@ zones["Desolace"] = {
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
-zones["Arathi Highlands"] = {
+zones[Z["Arathi Highlands"]] = {
     low = 30,
     high = 40,
     continent = Eastern_Kingdoms,
@@ -1002,7 +1236,7 @@ zones["Arathi Highlands"] = {
     nodes = {"Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
-zones["Swamp of Sorrows"] = {
+zones[Z["Swamp of Sorrows"]] = {
     low = 36,
     high = 43,
     continent = Eastern_Kingdoms,
@@ -1013,7 +1247,7 @@ zones["Swamp of Sorrows"] = {
     nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"}
 }
 
-zones["Badlands"] = {
+zones[Z["Badlands"]] = {
     low = 36,
     high = 45,
     continent = Eastern_Kingdoms,
@@ -1022,7 +1256,7 @@ zones["Badlands"] = {
     nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
-zones["Stranglethorn Vale"] = {
+zones[Z["Stranglethorn Vale"]] = {
     low = 30,
     high = 50,
     continent = Eastern_Kingdoms,
@@ -1033,7 +1267,7 @@ zones["Stranglethorn Vale"] = {
     nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
-zones["Tanaris"] = {
+zones[Z["Tanaris"]] = {
     low = 40,
     high = 50,
     continent = Kalimdor,
@@ -1044,7 +1278,7 @@ zones["Tanaris"] = {
     nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"}
 }
 
-zones["Dustwallow Marsh"] = {
+zones[Z["Dustwallow Marsh"]] = {
     low = 33,
     high = 50,
     continent = Kalimdor,
@@ -1055,7 +1289,7 @@ zones["Dustwallow Marsh"] = {
     nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"}
 }
 
-zones["The Hinterlands"] = {
+zones[Z["The Hinterlands"]] = {
     low = 41,
     high = 49,
     continent = Eastern_Kingdoms,
@@ -1065,7 +1299,7 @@ zones["The Hinterlands"] = {
     nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"}
 }
 
-zones["Feralas"] = {
+zones[Z["Feralas"]] = {
     low = 41,
     high = 50,
     continent = Kalimdor,
@@ -1076,7 +1310,7 @@ zones["Feralas"] = {
     nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Ooze Covered Gold Vein", "Mithril Deposit", "Ooze Covered Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein", "Ooze Covered Thorium Vein"}
 }
 
-zones["Azshara"] = {
+zones[Z["Azshara"]] = {
     low = 42,
     high = 55,
     continent = Kalimdor,
@@ -1086,7 +1320,7 @@ zones["Azshara"] = {
     nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Rich Thorium Vein"}
 }
 
-zones["Western Plaguelands"] = {
+zones[Z["Western Plaguelands"]] = {
     low = 43,
     high = 57,
     continent = Eastern_Kingdoms,
@@ -1097,7 +1331,7 @@ zones["Western Plaguelands"] = {
     nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit","Small Thorium Vein", "Rich Thorium Vein"}
 }
 
-zones["Burning Steppes"] = {
+zones[Z["Burning Steppes"]] = {
     low = 50,
     high = 59,
     continent = Eastern_Kingdoms,
@@ -1109,7 +1343,7 @@ zones["Burning Steppes"] = {
     nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit","Dark Iron Deposit", "Small Thorium Vein", "Rich Thorium Vein"}
 }
 
-zones["Felwood"] = {
+zones[Z["Felwood"]] = {
     low = 47,
     high = 54,
     continent = Kalimdor,
@@ -1119,7 +1353,7 @@ zones["Felwood"] = {
     nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit","Small Thorium Vein"}
 }
 
-zones["Searing Gorge"] = {
+zones[Z["Searing Gorge"]] = {
     low = 43,
     high = 56,
     continent = Eastern_Kingdoms,
@@ -1128,7 +1362,7 @@ zones["Searing Gorge"] = {
     nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit","Dark Iron Deposit", "Small Thorium Vein"}
 }
 
-zones["Un'Goro Crater"] = {
+zones[Z["Un'Goro Crater"]] = {
     low = 48,
     high = 55,
     continent = Kalimdor,
@@ -1138,7 +1372,7 @@ zones["Un'Goro Crater"] = {
     nodes = {"Truesilver Deposit", "Ooze Covered Truesilver Deposit", "Small Thorium Vein", "Ooze Covered Thorium Vein", "Rich Thorium Vein", "Ooze Covered Rich Thorium Vein"}
 }
 
-zones["Winterspring"] = {
+zones[Z["Winterspring"]] = {
     low = 55,
     high = 60,
     continent = Kalimdor,
@@ -1148,7 +1382,7 @@ zones["Winterspring"] = {
     nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit","Small Thorium Vein", "Rich Thorium Vein"}
 }
 
-zones["Blasted Lands"] = {
+zones[Z["Blasted Lands"]] = {
     low = 46,
     high = 60,
     continent = Eastern_Kingdoms,
@@ -1157,7 +1391,7 @@ zones["Blasted Lands"] = {
     nodes = {"Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"}
 }
 
-zones["Eastern Plaguelands"] = {
+zones[Z["Eastern Plaguelands"]] = {
     low = 54,
     high = 59,
     continent = Eastern_Kingdoms,
@@ -1169,7 +1403,7 @@ zones["Eastern Plaguelands"] = {
     nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit","Small Thorium Vein", "Rich Thorium Vein"}
 }
 
-zones["Deadwind Pass"] = {
+zones[Z["Deadwind Pass"]] = {
     low = 50,
     high = 60,
     continent = Eastern_Kingdoms,
@@ -1177,7 +1411,7 @@ zones["Deadwind Pass"] = {
     fishing_min = 330
 }
 
-zones["Silithus"] = {
+zones[Z["Silithus"]] = {
     low = 55,
     high = 59,
     continent = Kalimdor,
@@ -1190,7 +1424,7 @@ zones["Silithus"] = {
 
 -- City definition ---------------------------------------------------------------------------------------
 
-zones["Orgrimmar"] = {
+zones[Z["Orgrimmar"]] = {
     low = 1,
     high = 60,
     continent = Kalimdor,
@@ -1199,7 +1433,7 @@ zones["Orgrimmar"] = {
     fishing_min = 1
 }
 
-zones["Thunder Bluff"] = {
+zones[Z["Thunder Bluff"]] = {
     low = 1,
     high = 60,
     continent = Kalimdor,
@@ -1207,7 +1441,7 @@ zones["Thunder Bluff"] = {
     fishing_min = 1
 }
 
-zones["Undercity"] = {
+zones[Z["Undercity"]] = {
     low = 1,
     high = 60,
     continent = Eastern_Kingdoms,
@@ -1215,7 +1449,7 @@ zones["Undercity"] = {
     fishing_min = 1
 }
 
-zones["Darnassus"] = {
+zones[Z["Darnassus"]] = {
     low = 1,
     high = 60,
     continent = Kalimdor,
@@ -1223,7 +1457,7 @@ zones["Darnassus"] = {
     fishing_min = 1
 }
 
-zones["Ironforge"] = {
+zones[Z["Ironforge"]] = {
     low = 1,
     high = 60,
     continent = Eastern_Kingdoms,
@@ -1231,7 +1465,7 @@ zones["Ironforge"] = {
     fishing_min = 1
 }
 
-zones["Stormwind City"] = {
+zones[Z["Stormwind City"]] = {
     low = 1,
     high = 60,
     continent = Eastern_Kingdoms,
@@ -1242,14 +1476,14 @@ zones["Stormwind City"] = {
 
 -- Instance definition ---------------------------------------------------------------------------------------
 
-instances["Ragefire Chasm"] = {
+instances[Z["Ragefire Chasm"]] = {
     low = 13,
     high = 22,
     continent = Kalimdor,
     entrance = {52, 49},
 }
 
-instances["The Deadmines"] = {
+instances[Z["The Deadmines"]] = {
     low = 15,
     high = 28,
     continent = Eastern_Kingdoms,
@@ -1257,7 +1491,7 @@ instances["The Deadmines"] = {
     fishing_min = 20
 }
 
-instances["Wailing Caverns"] = {
+instances[Z["Wailing Caverns"]] = {
     low = 15,
     high = 28,
     continent = Kalimdor,
@@ -1265,14 +1499,14 @@ instances["Wailing Caverns"] = {
     fishing_min = 20
 }
 
-instances["Shadowfang Keep"] = {
+instances[Z["Shadowfang Keep"]] = {
     low = 18,
     high = 32,
     continent = Eastern_Kingdoms,
     entrance = {42.7, 67.7},
 }
 
-instances["Blackfathom Deeps"] = {
+instances[Z["Blackfathom Deeps"]] = {
     low = 20,
     high = 35,
     continent = Kalimdor,
@@ -1280,70 +1514,70 @@ instances["Blackfathom Deeps"] = {
     fishing_min = 20
 }
 
-instances["The Stockade"] = {
+instances[Z["The Stockade"]] = {
     low = 22,
     high = 30,
     continent = Eastern_Kingdoms,
     entrance = {41, 57}
 }
 
-instances["Gnomeregan"] = {
+instances[Z["Gnomeregan"]] = {
     low = 24,
     high = 40,
     continent = Eastern_Kingdoms,
     entrance = {24, 40}
 }
 
-instances["Razorfen Kraul"] = {
+instances[Z["Razorfen Kraul"]] = {
     low = 24,
     high = 40,
     continent = Kalimdor,
     entrance = {42, 90}
 }
 
-instances["Scarlet Monastery: Graveyard"] = {
+instances[Z["Scarlet Monastery"]..": Graveyard"] = {
     low = 26,
     high = 36,
     continent = Eastern_Kingdoms,
     entrance = {84.28, 30.63}
 }
 
-instances["Scarlet Monastery: Library"] = {
+instances[Z["Scarlet Monastery"]..": Library"] = {
     low = 29,
     high = 39,
     continent = Eastern_Kingdoms,
     entrance = {85.30, 33}
 }
 
-instances["Scarlet Monastery: Armory"] = {
+instances[Z["Scarlet Monastery"]..": Armory"] = {
     low = 32,
     high = 42,
     continent = Eastern_Kingdoms,
     entrance = {85.83, 31.62}
 }
 
-instances["Scarlet Monastery: Cathedral"] = {
+instances[Z["Scarlet Monastery"]..": Cathedral"] = {
     low = 35,
     high = 45,
     continent = Eastern_Kingdoms,
     entrance = {85.35, 30.57}
 }
 
-instances["Razorfen Downs"] = {
+instances[Z["Razorfen Downs"]] = {
     low = 33,
     high = 47,
     continent = Kalimdor,
     entrance = {49, 96}
 }
 
-instances["Uldaman"] = {
+instances[Z["Uldaman"]] = {
     low = 35,
     high = 52,
     continent = Eastern_Kingdoms,
     entrance = {43, 14}
 }
 
-instances["Maraudon"] = {
+instances[Z["Maraudon"]] = {
     low = 35,
     high = 52,
     continent = Kalimdor,
@@ -1351,14 +1585,14 @@ instances["Maraudon"] = {
     fishing_min = 205
 }
 
-instances["Zul'Farrak"] = {
+instances[Z["Zul'Farrak"]] = {
     low = 43,
     high = 54,
     continent = Kalimdor,
     entrance = {39, 20}
 }
 
-instances["The Temple of Atal'Hakkar"] = {
+instances[Z["The Temple of Atal'Hakkar"]] = {
     low = 44,
     high = 60,
     continent = Eastern_Kingdoms,
@@ -1366,21 +1600,21 @@ instances["The Temple of Atal'Hakkar"] = {
     fishing_min = 205
 }
 
-instances["Blackrock Depths"] = {
+instances[Z["Blackrock Depths"]] = {
     low = 48,
     high = 60,
     continent = Eastern_Kingdoms,
     entrance = {29, 38}
 }
 
-instances["Blackrock Spire"] = {
+instances[Z["Blackrock Spire"]] = {
     low = 52,
     high = 60,
     continent = Eastern_Kingdoms,
     entrance = {28, 38}
 }
 
-instances["Stratholme"] = {
+instances[Z["Stratholme"]] = {
     low = 56,
     high = 60,
     continent = Eastern_Kingdoms,
@@ -1388,28 +1622,28 @@ instances["Stratholme"] = {
     fishing_min = 330
 }
 
-instances["Dire Maul: East"] = {
+instances[Z["Dire Maul"]..": East"] = {
     low = 36,
     high = 46,
     continent = Kalimdor,
     entrance = {59.5, 44}
 }
 
-instances["Dire Maul: West"] = {
+instances[Z["Dire Maul"]..": West"] = {
     low = 39,
     high = 49,
     continent = Kalimdor,
     entrance = {58, 44}
 }
 
-instances["Dire Maul: North"] = {
+instances[Z["Dire Maul"]..": North"] = {
     low = 42,
     high = 52,
     continent = Kalimdor,
     entrance = {58.9, 41.5}
 }
 
-instances["Scholomance"] = {
+instances[Z["Scholomance"]] = {
     low = 56,
     high = 60,
     continent = Eastern_Kingdoms,
@@ -1419,7 +1653,7 @@ instances["Scholomance"] = {
 
 -- Raid definition ---------------------------------------------------------------------------------------
 
-raids["Molten Core"] = {
+raids[Z["Molten Core"]] = {
     low = 55,
     high = 60,
     players = 40,
@@ -1427,15 +1661,15 @@ raids["Molten Core"] = {
     entrance = {30.5, 38}
 }
 
-raids["Onyxia's Lair"] = {
-    low = 55,
-    high = 60,
-    players = 40,
-    continent = Kalimdor,
-    entrance = {56, 71}
-}
+-- raids[Z["Onyxia's Lair"]] = {
+--     low = 55,
+--     high = 60,
+--     players = 40,
+--     continent = Kalimdor,
+--     entrance = {56, 71}
+-- }
 
-raids["Blackwing Lair"] = {
+raids[Z["Blackwing Lair"]] = {
     low = 60,
     high = 60,
     players = 40,
@@ -1443,15 +1677,15 @@ raids["Blackwing Lair"] = {
     entrance = {29, 34}
 }
 
-raids["Zul'Gurub"] = {
-    low = 60,
-    high = 60,
-    players = 40,
-    continent = Eastern_Kingdoms,
-    entrance = {53.9, 17.6}
-}
+-- raids[Z["Zul'Gurub"]] = {
+--     low = 60,
+--     high = 60,
+--     players = 40,
+--     continent = Eastern_Kingdoms,
+--     entrance = {53.9, 17.6}
+-- }
 
-raids["Ruins of Ahn'Qiraj"] = {
+raids[Z["Ruins of Ahn'Qiraj"]] = {
     low = 60,
     high = 60,
     players = 20,
@@ -1459,15 +1693,15 @@ raids["Ruins of Ahn'Qiraj"] = {
     entrance = {29, 93}
 }
 
-raids["Ahn'Qiraj"] = {
-    low = 60,
-    high = 60,
-    players = 40,
-    continent = Kalimdor,
-    entrance = {28.6, 92.4}
-}
+-- raids[Z["Ahn'Qiraj"]] = {
+--     low = 60,
+--     high = 60,
+--     players = 40,
+--     continent = Kalimdor,
+--     entrance = {28.6, 92.4}
+-- }
 
-raids["Naxxramas"] = {
+raids[Z["Naxxramas"]] = {
     low = 60,
     high = 60,
     players = 40,
@@ -1793,4 +2027,5 @@ nodes["Large Obsidian Chunk"] = {
 -- Might be nice to have fish by level/zone
 
 -- Cloth definition ---------------------------------------------------------------------------------------
--- Might be nice to have cloth drops mapped as well. Not sure if this is possible though.1
+-- Might be nice to have cloth drops mapped as well. Not sure if this is possible though.
+

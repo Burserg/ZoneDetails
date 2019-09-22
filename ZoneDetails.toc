@@ -1,7 +1,7 @@
 ## Interface: 11302
 ## Title: ZoneDetails
 ## Author: Burserg
-## Version: 0.9.4
+## Version: 1.0
 ## Notes: "Gotta start somewhere!"
 ## OptionalDeps: LibStub, CallbackHandler-1.0
 ## SavedVariables: ZoneDetailsDB
@@ -22,6 +22,8 @@ Libs\AceDB-3.0\AceDB-3.0.xml
 Libs\AceConsole-3.0\AceConsole-3.0.xml
 Libs\AceGUI-3.0\AceGUI-3.0.xml
 Libs\AceConfig-3.0\AceConfig-3.0.xml
+
+Locales\locale.xml
 
 ZoneDetails.xml
 ZoneDetails.lua
