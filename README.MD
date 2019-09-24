@@ -15,6 +15,6 @@ This addon is designed for WoW Classic.
 * [x] Add options page
     * [x] Toggles for pins
     * [x] Profession Toggles
-    * [ ] Frame location dropdown
     * [ ] Text size selector
 * [x] Entrance pins on map
+* [ ] Account for Complex maps such as Scarlet Monastery, Ahn'Qiraj, and Dire Maul.
