@@ -17,4 +17,4 @@ This addon is designed for WoW Classic.
     * [x] Profession Toggles
     * [ ] Text size selector
 * [x] Entrance pins on map
-* [ ] Account for Complex maps such as Scarlet Monastery, Ahn'Qiraj, and Dire Maul.
+* [x] Account for Complex maps such as Scarlet Monastery, Ahn'Qiraj, and Dire Maul.
