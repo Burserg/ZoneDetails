@@ -2,7 +2,6 @@
 -- Credit to ckknight for originally writing Cartographer_ZoneDetails
 -- Credit to phyber for writing Cromulent
 --]]
-print("Addon loaded")
 ZoneDetails = LibStub("AceAddon-3.0"):NewAddon("ZoneDetails", "AceConsole-3.0", "AceEvent-3.0", "AceHook-3.0")
 ZoneDetailsGlobalPinMixin = BaseMapPoiPinMixin:CreateSubPin("PIN_FRAME_LEVEL_DUNGEON_ENTRANCE")
 
@@ -25,7 +24,6 @@ do
 	isNeutral = not isAlliance and not isHorde
 end
 
--- Localized Zone Names
 local zones = {}
 local instances = {}
 local raids = {}
@@ -33,8 +31,7 @@ local battlegrounds = {}
 local complexes = {}
 local nodes = {}
 local herbs = {}
-local skins = {}
-local fishes = {}
+
 
 local profs = {
     L["Leatherworking"],
@@ -209,14 +206,14 @@ local options = {
                     desc = L["Toggles the display of minerals that can be found in current zone."],
                     width = "full",
                 },
-                showSkinning = {
-                    type = "toggle",
-                    order = 4,
-                    name = L["Show Skins (NYI)"],
-                    arg = "showSkinning",
-                    desc = L["Toggles the display of skins that can be found in current zone."],
-                    width = "full",
-                },
+                -- showSkinning = {
+                --     type = "toggle",
+                --     order = 4,
+                --     name = L["Show Skins (NYI)"],
+                --     arg = "showSkinning",
+                --     desc = L["Toggles the display of skins that can be found in current zone."],
+                --     width = "full",
+                -- },
             }
         },
     }
@@ -355,7 +352,6 @@ end
 function ZoneDetails:OnInitialize()
     self.db = LibStub("AceDB-3.0"):New("ZoneDetailsDB", defaults)
     db = self.db.profile
-    -- Called when the addon is loaded
     LibStub("AceConfig-3.0"):RegisterOptionsTable("ZoneDetails", options)
     options.args.profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db)
     self.optionsFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("ZoneDetails", "ZoneDetails")
