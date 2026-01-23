@@ -1,8 +1,8 @@
-## Interface: 11302
+## Interface: 20504
 ## Title: ZoneDetails
 ## Author: Burserg
-## Version: 1.0.1
-## Notes: "Gotta start somewhere!"
+## Version: 2.0.0
+## Notes: Zone details overlay for the World Map - TBC Classic Anniversary Edition
 ## OptionalDeps: LibStub, CallbackHandler-1.0
 ## SavedVariables: ZoneDetailsDB
 ## X-Embeds: Ace3

@@ -41,3 +41,7 @@ luac.out
 
 # Ignore Lib folder
 Libs/
+
+# Ignore .Identifer files
+*.Identifier
+
