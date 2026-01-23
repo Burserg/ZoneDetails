@@ -1,0 +1,29 @@
+## Interface: 50503
+## Title: ZoneDetails
+## Author: Burserg
+## Version: 2.1.0
+## Notes: Zone details overlay for the World Map - MoP Classic Edition
+## OptionalDeps: LibStub, CallbackHandler-1.0
+## SavedVariables: ZoneDetailsDB
+## X-Embeds: Ace3
+## X-Category: Map
+## X-License: All rights reserved.
+## X-Curse-Project-ID: 340319
+
+
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
+
+Libs\AceAddon-3.0\AceAddon-3.0.xml
+Libs\AceEvent-3.0\AceEvent-3.0.xml
+Libs\AceHook-3.0\AceHook-3.0.xml
+Libs\AceDB-3.0\AceDB-3.0.xml
+
+Libs\AceConsole-3.0\AceConsole-3.0.xml
+Libs\AceGUI-3.0\AceGUI-3.0.xml
+Libs\AceConfig-3.0\AceConfig-3.0.xml
+
+Locales\locale.xml
+
+ZoneDetails.xml
+ZoneDetails.lua

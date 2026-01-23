@@ -1,5 +1,5 @@
 --[[
--- ZoneDetails - TBC Classic Anniversary Edition
+-- ZoneDetails - Multi-Expansion Classic Edition
 -- Credit to ckknight for originally writing Cartographer_ZoneDetails
 -- Credit to phyber for writing Cromulent
 --]]
@@ -13,7 +13,6 @@ local ZoneDetailsPinDataProviderMixin = CreateFromMixins(MapCanvasDataProviderMi
 local WORLDMAP_CONTINENT = Enum.UIMapType.Continent
 local WORLDMAP_ZONE = Enum.UIMapType.Zone
 local WORLDMAP_AZEROTH_ID = 947
-local WORLDMAP_OUTLAND_ID = 1945
 local playerLevel = UnitLevel("player")
 local db
 
@@ -50,11 +49,21 @@ local profs = {
     L["Jewelcrafting"],
 }
 
--- Continent name constants
+local tocVersion = select(4, GetBuildInfo())
+local isVanilla = tocVersion < 20000
+local isTBC = tocVersion >= 20000 and tocVersion < 30000
+local isMoP = tocVersion >= 50000 and tocVersion < 60000
+
+local MAX_LEVEL = isMoP and 90 or (isTBC and 70 or 60)
+
 local Azeroth = "Azeroth"
 local Kalimdor = "Kalimdor"
 local Eastern_Kingdoms = "Eastern Kingdoms"
 local Outland = "Outland"
+local Pandaria = "Pandaria"
+
+local WORLDMAP_OUTLAND_ID = isMoP and 101 or 1945
+local WORLDMAP_PANDARIA_ID = 424
 
 local defaults = {
     profile = {
@@ -477,16 +486,37 @@ end
 
 function ZoneDetails:GetProfessions()
     local professions = {}
-    for skillIndex = 1, GetNumSkillLines() do
-        local skillName, isHeader, _, skillRank = GetSkillLineInfo(skillIndex)
-        if not isHeader then
-            for _, v in pairs(profs) do
-                if v == skillName then
-                    professions[skillName] = skillRank
+
+    if isMoP then
+        -- MoP Classic uses the retail-style profession API
+        local prof1, prof2, archaeology, fishing, cooking = GetProfessions()
+        local profIDs = {prof1, prof2, archaeology, fishing, cooking}
+        for _, profID in pairs(profIDs) do
+            if profID then
+                local name, _, skillLevel = GetProfessionInfo(profID)
+                if name and skillLevel then
+                    for _, v in pairs(profs) do
+                        if v == name then
+                            professions[name] = skillLevel
+                        end
+                    end
+                end
+            end
+        end
+    else
+        -- Classic/TBC use the skill line API
+        for skillIndex = 1, GetNumSkillLines() do
+            local skillName, isHeader, _, skillRank = GetSkillLineInfo(skillIndex)
+            if not isHeader then
+                for _, v in pairs(profs) do
+                    if v == skillName then
+                        professions[skillName] = skillRank
+                    end
                 end
             end
         end
     end
+
     return professions
 end
 
@@ -507,7 +537,7 @@ function ZoneDetails:GetProfessionDetails()
         return nil
     end
 
-    local playerProfs = self.GetProfessions()
+    local playerProfs = self:GetProfessions()
     local profText = ""
     local hasRelevantProf = playerProfs[L["Mining"]] or playerProfs[L["Herbalism"]] or playerProfs[L["Fishing"]]
 
@@ -1092,7 +1122,7 @@ zones[1428] = {
 -- Deadwind Pass
 zones[1430] = {
     low = 50,
-    high = 70,
+    high = MAX_LEVEL,
     continent = Eastern_Kingdoms,
     raids = {532},
     faction = "Contested",
@@ -1119,7 +1149,7 @@ zones[1423] = {
 -- Moonglade
 zones[1450] = {
     low = 10,
-    high = 70,
+    high = MAX_LEVEL,
     continent = Kalimdor,
     faction = "Contested",
     fishing_min = 205,
@@ -1374,7 +1404,7 @@ zones[1957] = {
 -- Orgrimmar
 zones[1454] = {
     low = 1,
-    high = 70,
+    high = MAX_LEVEL,
     continent = Kalimdor,
     instances = {389},
     faction = "Horde",
@@ -1384,7 +1414,7 @@ zones[1454] = {
 -- Thunder Bluff
 zones[1456] = {
     low = 1,
-    high = 70,
+    high = MAX_LEVEL,
     continent = Kalimdor,
     faction = "Horde",
     fishing_min = 1,
@@ -1393,7 +1423,7 @@ zones[1456] = {
 -- Undercity
 zones[1458] = {
     low = 1,
-    high = 70,
+    high = MAX_LEVEL,
     continent = Eastern_Kingdoms,
     faction = "Horde",
     fishing_min = 1,
@@ -1402,7 +1432,7 @@ zones[1458] = {
 -- Silvermoon City (TBC)
 zones[1954] = {
     low = 1,
-    high = 70,
+    high = MAX_LEVEL,
     continent = Eastern_Kingdoms,
     faction = "Horde",
 }
@@ -1410,7 +1440,7 @@ zones[1954] = {
 -- Darnassus
 zones[1457] = {
     low = 1,
-    high = 70,
+    high = MAX_LEVEL,
     continent = Kalimdor,
     faction = "Alliance",
     fishing_min = 1,
@@ -1419,7 +1449,7 @@ zones[1457] = {
 -- Ironforge
 zones[1455] = {
     low = 1,
-    high = 70,
+    high = MAX_LEVEL,
     continent = Eastern_Kingdoms,
     faction = "Alliance",
     fishing_min = 1,
@@ -1428,7 +1458,7 @@ zones[1455] = {
 -- Stormwind City
 zones[1453] = {
     low = 1,
-    high = 70,
+    high = MAX_LEVEL,
     continent = Eastern_Kingdoms,
     instances = {34},
     faction = "Alliance",
@@ -1438,7 +1468,7 @@ zones[1453] = {
 -- The Exodar (TBC)
 zones[1947] = {
     low = 1,
-    high = 70,
+    high = MAX_LEVEL,
     continent = Kalimdor,
     faction = "Alliance",
 }
@@ -1446,7 +1476,7 @@ zones[1947] = {
 -- Shattrath City (TBC)
 zones[1955] = {
     low = 1,
-    high = 70,
+    high = MAX_LEVEL,
     continent = Outland,
     faction = "Contested",
 }
@@ -1953,7 +1983,7 @@ raids[580] = {
 -- Warsong Gulch
 battlegrounds[489] = {
     low = 10,
-    high = 70,
+    high = MAX_LEVEL,
     horde_entrance = {},
     alliance_entrance = {},
     players = 10,
@@ -1962,7 +1992,7 @@ battlegrounds[489] = {
 -- Arathi Basin
 battlegrounds[529] = {
     low = 20,
-    high = 70,
+    high = MAX_LEVEL,
     horde_entrance = {},
     alliance_entrance = {},
     players = 15,
@@ -1971,7 +2001,7 @@ battlegrounds[529] = {
 -- Alterac Valley
 battlegrounds[30] = {
     low = 51,
-    high = 70,
+    high = MAX_LEVEL,
     horde_entrance = {},
     alliance_entrance = {},
     players = 40,
@@ -1980,7 +2010,7 @@ battlegrounds[30] = {
 -- Eye of the Storm (TBC)
 battlegrounds[566] = {
     low = 61,
-    high = 70,
+    high = MAX_LEVEL,
     horde_entrance = {},
     alliance_entrance = {},
     players = 15,
@@ -2335,3 +2365,1788 @@ nodes["Khorium Vein"] = {
     low = 375,
     high = 400,
 }
+
+-- ============================================================================
+-- MoP Classic Data (retail-style uiMapIDs, gated by expansion)
+-- ============================================================================
+
+if isMoP then
+
+-- ============================================================================
+-- MoP: Azeroth/Outland Zones (retail uiMapIDs)
+-- ============================================================================
+
+-- Alliance Starting Zones
+-- Elwynn Forest
+zones[37] = {
+    low = 1,
+    high = 10,
+    continent = Eastern_Kingdoms,
+    faction = "Alliance",
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
+    nodes = {"Copper Vein"},
+}
+
+-- Teldrassil
+zones[57] = {
+    low = 1,
+    high = 11,
+    continent = Kalimdor,
+    faction = "Alliance",
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
+}
+
+-- Dun Morogh
+zones[27] = {
+    low = 1,
+    high = 12,
+    continent = Eastern_Kingdoms,
+    faction = "Alliance",
+    fishing_min = 1,
+    instances = {90},
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
+    nodes = {"Copper Vein"},
+}
+
+-- Azuremyst Isle
+zones[97] = {
+    low = 1,
+    high = 10,
+    continent = Kalimdor,
+    faction = "Alliance",
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
+    nodes = {"Copper Vein"},
+}
+
+-- Westfall
+zones[52] = {
+    low = 9,
+    high = 18,
+    continent = Eastern_Kingdoms,
+    instances = {36},
+    faction = "Alliance",
+    fishing_min = 55,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Bruiseweed"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"},
+}
+
+-- Loch Modan
+zones[48] = {
+    low = 10,
+    high = 18,
+    continent = Eastern_Kingdoms,
+    faction = "Alliance",
+    fishing_min = 20,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Bruiseweed"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"},
+}
+
+-- Darkshore
+zones[62] = {
+    low = 11,
+    high = 19,
+    continent = Kalimdor,
+    faction = "Alliance",
+    fishing_min = 20,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"},
+}
+
+-- Bloodmyst Isle
+zones[106] = {
+    low = 10,
+    high = 20,
+    continent = Kalimdor,
+    faction = "Alliance",
+    fishing_min = 20,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"},
+}
+
+-- Horde Starting Zones
+-- Durotar
+zones[1] = {
+    low = 1,
+    high = 10,
+    continent = Kalimdor,
+    faction = "Horde",
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal"},
+    nodes = {"Copper Vein"},
+}
+
+-- Mulgore
+zones[7] = {
+    low = 1,
+    high = 10,
+    continent = Kalimdor,
+    faction = "Horde",
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
+    nodes = {"Copper Vein"},
+}
+
+-- Tirisfal Glades
+zones[18] = {
+    low = 1,
+    high = 12,
+    continent = Eastern_Kingdoms,
+    complexes = {189},
+    faction = "Horde",
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
+    nodes = {"Copper Vein"},
+}
+
+-- Eversong Woods
+zones[94] = {
+    low = 1,
+    high = 10,
+    continent = Eastern_Kingdoms,
+    faction = "Horde",
+    fishing_min = 1,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
+    nodes = {"Copper Vein"},
+}
+
+-- Silverpine Forest
+zones[21] = {
+    low = 10,
+    high = 20,
+    instances = {33},
+    continent = Eastern_Kingdoms,
+    faction = "Horde",
+    fishing_min = 20,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"},
+}
+
+-- Northern Barrens
+zones[10] = {
+    low = 10,
+    high = 33,
+    continent = Kalimdor,
+    instances = {43, 47, 129},
+    battlegrounds = {489},
+    faction = "Horde",
+    fishing_min = 20,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"},
+}
+
+-- Ghostlands
+zones[95] = {
+    low = 10,
+    high = 20,
+    continent = Eastern_Kingdoms,
+    faction = "Horde",
+    fishing_min = 20,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"},
+}
+
+-- Contested Zones (Eastern Kingdoms)
+-- Duskwood
+zones[47] = {
+    low = 10,
+    high = 30,
+    continent = Eastern_Kingdoms,
+    faction = "Contested",
+    fishing_min = 55,
+    herbs = {"Mageroyal", "Briarthorn", "Wild Steelbloom", "Grave Moss", "Kingsblood"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein"},
+}
+
+-- Redridge Mountains
+zones[49] = {
+    low = 15,
+    high = 25,
+    continent = Eastern_Kingdoms,
+    faction = "Contested",
+    fishing_min = 55,
+    herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Bruiseweed"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein"},
+}
+
+-- Wetlands
+zones[56] = {
+    low = 20,
+    high = 30,
+    continent = Eastern_Kingdoms,
+    faction = "Contested",
+    fishing_min = 55,
+    herbs = {"Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood", "Liferoot"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein"},
+}
+
+-- Hillsbrad Foothills
+zones[25] = {
+    low = 20,
+    high = 31,
+    continent = Eastern_Kingdoms,
+    battlegrounds = {30},
+    faction = "Contested",
+    fishing_min = 55,
+    herbs = {"Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Kingsblood", "Liferoot"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit"},
+}
+
+-- Arathi Highlands
+zones[14] = {
+    low = 30,
+    high = 40,
+    continent = Eastern_Kingdoms,
+    battlegrounds = {529},
+    faction = "Contested",
+    fishing_min = 130,
+    herbs = {"Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker"},
+    nodes = {"Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"},
+}
+
+-- Northern Stranglethorn
+zones[50] = {
+    low = 30,
+    high = 50,
+    continent = Eastern_Kingdoms,
+    faction = "Contested",
+    fishing_min = 130,
+    herbs = {"Stranglekelp", "Wild Steelbloom", "Kingsblood", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Purple Lotus"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"},
+}
+
+-- Swamp of Sorrows
+zones[51] = {
+    low = 36,
+    high = 43,
+    continent = Eastern_Kingdoms,
+    instances = {109},
+    faction = "Contested",
+    fishing_min = 130,
+    herbs = {"Stranglekelp", "Kingsblood", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Blindweed"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"},
+}
+
+-- Badlands
+zones[15] = {
+    low = 36,
+    high = 45,
+    continent = Eastern_Kingdoms,
+    instances = {70},
+    faction = "Contested",
+    herbs = {"Wild Steelbloom", "Kingsblood", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Firebloom", "Purple Lotus"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"},
+}
+
+-- The Hinterlands
+zones[26] = {
+    low = 41,
+    high = 49,
+    continent = Eastern_Kingdoms,
+    faction = "Contested",
+    fishing_min = 205,
+    herbs = {"Stranglekelp", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Purple Lotus", "Sungrass", "Ghost Mushroom", "Golden Sansam"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"},
+}
+
+-- Western Plaguelands
+zones[22] = {
+    low = 43,
+    high = 57,
+    continent = Eastern_Kingdoms,
+    instances = {289},
+    faction = "Contested",
+    fishing_min = 205,
+    herbs = {"Arthas' Tears", "Sungrass", "Dreamfoil", "Mountain Silversage", "Plaguebloom"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein", "Rich Thorium Vein"},
+}
+
+-- Searing Gorge
+zones[32] = {
+    low = 43,
+    high = 56,
+    continent = Eastern_Kingdoms,
+    faction = "Contested",
+    herbs = {"Firebloom"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Dark Iron Deposit", "Small Thorium Vein"},
+}
+
+-- Blasted Lands
+zones[17] = {
+    low = 46,
+    high = 60,
+    continent = Eastern_Kingdoms,
+    faction = "Contested",
+    herbs = {"Goldthorn", "Firebloom", "Sungrass", "Gromsblood"},
+    nodes = {"Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"},
+}
+
+-- Burning Steppes
+zones[36] = {
+    low = 50,
+    high = 59,
+    continent = Eastern_Kingdoms,
+    instances = {230, 229},
+    raids = {409, 469},
+    faction = "Contested",
+    fishing_min = 330,
+    herbs = {"Sungrass", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Black Lotus"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Dark Iron Deposit", "Small Thorium Vein", "Rich Thorium Vein"},
+}
+
+-- Deadwind Pass
+zones[42] = {
+    low = 50,
+    high = MAX_LEVEL,
+    continent = Eastern_Kingdoms,
+    raids = {532},
+    faction = "Contested",
+    fishing_min = 330,
+}
+
+-- Eastern Plaguelands
+zones[23] = {
+    low = 54,
+    high = 59,
+    continent = Eastern_Kingdoms,
+    instances = {329},
+    raids = {533},
+    faction = "Contested",
+    fishing_min = 330,
+    herbs = {"Arthas' Tears", "Sungrass", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Plaguebloom", "Black Lotus"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein", "Rich Thorium Vein"},
+}
+
+-- Contested Zones (Kalimdor)
+-- Moonglade
+zones[80] = {
+    low = 10,
+    high = MAX_LEVEL,
+    continent = Kalimdor,
+    faction = "Contested",
+    fishing_min = 205,
+}
+
+-- Stonetalon Mountains
+zones[65] = {
+    low = 15,
+    high = 25,
+    continent = Kalimdor,
+    faction = "Contested",
+    fishing_min = 55,
+    herbs = {"Mageroyal", "Bruiseweed", "Wild Steelbloom", "Kingsblood"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"},
+}
+
+-- Ashenvale
+zones[63] = {
+    low = 19,
+    high = 30,
+    instances = {48},
+    battlegrounds = {489},
+    continent = Kalimdor,
+    faction = "Contested",
+    fishing_min = 55,
+    herbs = {"Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Kingsblood", "Liferoot"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein"},
+}
+
+-- Thousand Needles
+zones[64] = {
+    low = 24,
+    high = 35,
+    continent = Kalimdor,
+    faction = "Contested",
+    fishing_min = 130,
+    herbs = {"Bruiseweed", "Wild Steelbloom", "Kingsblood"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit"},
+}
+
+-- Desolace
+zones[66] = {
+    low = 30,
+    high = 39,
+    continent = Kalimdor,
+    instances = {349},
+    faction = "Contested",
+    fishing_min = 130,
+    herbs = {"Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood", "Liferoot", "Gromsblood"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"},
+}
+
+-- Dustwallow Marsh
+zones[70] = {
+    low = 33,
+    high = 50,
+    continent = Kalimdor,
+    raids = {249},
+    faction = "Contested",
+    fishing_min = 130,
+    herbs = {"Stranglekelp", "Kingsblood", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"},
+}
+
+-- Tanaris
+zones[71] = {
+    low = 40,
+    high = 50,
+    continent = Kalimdor,
+    instances = {209},
+    complexes = {2367},
+    faction = "Contested",
+    fishing_min = 205,
+    herbs = {"Stranglekelp", "Firebloom", "Purple Lotus"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"},
+}
+
+-- Feralas
+zones[69] = {
+    low = 41,
+    high = 50,
+    continent = Kalimdor,
+    complexes = {429},
+    faction = "Contested",
+    fishing_min = 205,
+    herbs = {"Stranglekelp", "Liferoot", "Goldthorn", "Khadgar's Whisker", "Purple Lotus", "Sungrass", "Golden Sansam"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"},
+}
+
+-- Azshara
+zones[76] = {
+    low = 42,
+    high = 55,
+    continent = Kalimdor,
+    faction = "Contested",
+    fishing_min = 205,
+    herbs = {"Stranglekelp", "Goldthorn", "Khadgar's Whisker", "Purple Lotus", "Sungrass", "Golden Sansam", "Mountain Silversage"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Rich Thorium Vein"},
+}
+
+-- Felwood
+zones[77] = {
+    low = 47,
+    high = 54,
+    continent = Kalimdor,
+    faction = "Contested",
+    fishing_min = 205,
+    herbs = {"Arthas' Tears", "Sungrass", "Gromsblood", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Plaguebloom"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"},
+}
+
+-- Un'Goro Crater
+zones[78] = {
+    low = 48,
+    high = 55,
+    continent = Kalimdor,
+    faction = "Contested",
+    fishing_min = 205,
+    herbs = {"Sungrass", "Blindweed", "Golden Sansam", "Dreamfoil", "Mountain Silversage"},
+    nodes = {"Truesilver Deposit", "Small Thorium Vein", "Rich Thorium Vein"},
+}
+
+-- Silithus
+zones[81] = {
+    low = 55,
+    high = 59,
+    continent = Kalimdor,
+    raids = {509, 531},
+    faction = "Contested",
+    fishing_min = 330,
+    herbs = {"Sungrass", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Black Lotus"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein", "Rich Thorium Vein"},
+}
+
+-- Winterspring
+zones[83] = {
+    low = 55,
+    high = 60,
+    continent = Kalimdor,
+    faction = "Contested",
+    fishing_min = 330,
+    herbs = {"Mountain Silversage", "Icecap", "Black Lotus"},
+    nodes = {"Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein", "Rich Thorium Vein"},
+}
+
+-- Outland Zones
+-- Hellfire Peninsula
+zones[100] = {
+    low = 58,
+    high = 63,
+    continent = Outland,
+    instances = {543, 542, 540},
+    raids = {544},
+    faction = "Contested",
+    fishing_min = 280,
+    herbs = {"Felweed", "Dreaming Glory", "Flame Cap"},
+    nodes = {"Fel Iron Deposit", "Adamantite Deposit"},
+}
+
+-- Zangarmarsh
+zones[102] = {
+    low = 60,
+    high = 64,
+    continent = Outland,
+    instances = {546, 545, 547},
+    raids = {548},
+    faction = "Contested",
+    fishing_min = 305,
+    herbs = {"Felweed", "Dreaming Glory", "Ragveil", "Flame Cap"},
+    nodes = {"Fel Iron Deposit", "Adamantite Deposit"},
+}
+
+-- Terokkar Forest
+zones[108] = {
+    low = 62,
+    high = 65,
+    continent = Outland,
+    complexes = {3790},
+    faction = "Contested",
+    fishing_min = 355,
+    herbs = {"Felweed", "Dreaming Glory", "Terocone"},
+    nodes = {"Fel Iron Deposit", "Adamantite Deposit", "Rich Adamantite Deposit"},
+}
+
+-- Nagrand
+zones[107] = {
+    low = 64,
+    high = 67,
+    continent = Outland,
+    faction = "Contested",
+    fishing_min = 380,
+    herbs = {"Felweed", "Dreaming Glory", "Terocone"},
+    nodes = {"Fel Iron Deposit", "Adamantite Deposit", "Rich Adamantite Deposit"},
+}
+
+-- Blade's Edge Mountains
+zones[105] = {
+    low = 65,
+    high = 68,
+    continent = Outland,
+    raids = {565},
+    faction = "Contested",
+    fishing_min = 355,
+    herbs = {"Felweed", "Dreaming Glory", "Flame Cap", "Netherbloom"},
+    nodes = {"Fel Iron Deposit", "Adamantite Deposit", "Rich Adamantite Deposit", "Khorium Vein"},
+}
+
+-- Netherstorm
+zones[109] = {
+    low = 67,
+    high = 70,
+    continent = Outland,
+    instances = {554, 553, 552},
+    raids = {550},
+    battlegrounds = {566},
+    faction = "Contested",
+    fishing_min = 380,
+    herbs = {"Felweed", "Dreaming Glory", "Netherbloom", "Nightmare Vine", "Mana Thistle"},
+    nodes = {"Fel Iron Deposit", "Adamantite Deposit", "Rich Adamantite Deposit", "Khorium Vein"},
+}
+
+-- Shadowmoon Valley
+zones[104] = {
+    low = 67,
+    high = 70,
+    continent = Outland,
+    raids = {564},
+    faction = "Contested",
+    fishing_min = 380,
+    herbs = {"Felweed", "Dreaming Glory", "Terocone", "Nightmare Vine", "Ancient Lichen"},
+    nodes = {"Fel Iron Deposit", "Adamantite Deposit", "Rich Adamantite Deposit", "Khorium Vein"},
+}
+
+-- ============================================================================
+-- MoP: Northrend Zones (WotLK, retail uiMapIDs)
+-- ============================================================================
+
+local Northrend = "Northrend"
+
+-- Borean Tundra
+zones[114] = {
+    low = 68,
+    high = 72,
+    continent = Northrend,
+    instances = {576, 578},
+    raids = {616},
+    faction = "Contested",
+    fishing_min = 380,
+    herbs = {"Goldclover", "Tiger Lily"},
+    nodes = {"Cobalt Deposit", "Rich Cobalt Deposit"},
+}
+
+-- Howling Fjord
+zones[117] = {
+    low = 68,
+    high = 72,
+    continent = Northrend,
+    instances = {574, 575},
+    faction = "Contested",
+    fishing_min = 380,
+    herbs = {"Goldclover", "Tiger Lily"},
+    nodes = {"Cobalt Deposit", "Rich Cobalt Deposit"},
+}
+
+-- Dragonblight
+zones[115] = {
+    low = 71,
+    high = 75,
+    continent = Northrend,
+    instances = {600},
+    raids = {533, 615},
+    faction = "Contested",
+    fishing_min = 405,
+    herbs = {"Goldclover", "Tiger Lily", "Talandra's Rose"},
+    nodes = {"Cobalt Deposit", "Rich Cobalt Deposit", "Saronite Deposit"},
+}
+
+-- Grizzly Hills
+zones[116] = {
+    low = 73,
+    high = 75,
+    continent = Northrend,
+    instances = {600},
+    faction = "Contested",
+    fishing_min = 405,
+    herbs = {"Goldclover", "Tiger Lily", "Talandra's Rose"},
+    nodes = {"Cobalt Deposit", "Rich Cobalt Deposit", "Saronite Deposit"},
+}
+
+-- Zul'Drak
+zones[121] = {
+    low = 74,
+    high = 77,
+    continent = Northrend,
+    instances = {604, 601, 619},
+    faction = "Contested",
+    fishing_min = 430,
+    herbs = {"Goldclover", "Tiger Lily", "Talandra's Rose", "Adder's Tongue"},
+    nodes = {"Cobalt Deposit", "Rich Cobalt Deposit", "Saronite Deposit"},
+}
+
+-- Sholazar Basin
+zones[119] = {
+    low = 76,
+    high = 78,
+    continent = Northrend,
+    faction = "Contested",
+    fishing_min = 430,
+    herbs = {"Goldclover", "Tiger Lily", "Adder's Tongue"},
+    nodes = {"Saronite Deposit", "Rich Saronite Deposit", "Titanium Vein"},
+}
+
+-- The Storm Peaks
+zones[120] = {
+    low = 77,
+    high = 80,
+    continent = Northrend,
+    raids = {603},
+    faction = "Contested",
+    fishing_min = 455,
+    herbs = {"Lichbloom", "Icethorn", "Frost Lotus"},
+    nodes = {"Saronite Deposit", "Rich Saronite Deposit", "Titanium Vein"},
+}
+
+-- Icecrown
+zones[118] = {
+    low = 77,
+    high = 80,
+    continent = Northrend,
+    instances = {632, 658, 668},
+    raids = {631, 649},
+    faction = "Contested",
+    fishing_min = 455,
+    herbs = {"Lichbloom", "Icethorn", "Frost Lotus"},
+    nodes = {"Saronite Deposit", "Rich Saronite Deposit", "Titanium Vein"},
+}
+
+-- Crystalsong Forest
+zones[127] = {
+    low = 77,
+    high = 80,
+    continent = Northrend,
+    faction = "Contested",
+    fishing_min = 430,
+    herbs = {"Goldclover", "Talandra's Rose"},
+    nodes = {"Saronite Deposit", "Rich Saronite Deposit"},
+}
+
+-- Wintergrasp
+zones[123] = {
+    low = 77,
+    high = 80,
+    continent = Northrend,
+    raids = {624},
+    faction = "Contested",
+    fishing_min = 455,
+    herbs = {"Goldclover", "Tiger Lily", "Lichbloom", "Icethorn", "Frost Lotus"},
+    nodes = {"Cobalt Deposit", "Rich Cobalt Deposit", "Saronite Deposit", "Rich Saronite Deposit", "Titanium Vein"},
+}
+
+-- Dalaran (Northrend)
+zones[125] = {
+    low = 1,
+    high = MAX_LEVEL,
+    continent = Northrend,
+    instances = {608, 650},
+    faction = "Contested",
+    fishing_min = 430,
+}
+
+-- ============================================================================
+-- MoP: Cataclysm Zones (retail uiMapIDs)
+-- ============================================================================
+
+-- Mount Hyjal
+zones[198] = {
+    low = 80,
+    high = 82,
+    continent = Kalimdor,
+    raids = {720},
+    faction = "Contested",
+    fishing_min = 480,
+    herbs = {"Cinderbloom", "Stormvine", "Heartblossom"},
+    nodes = {"Obsidium Deposit", "Rich Obsidium Deposit"},
+}
+
+-- Vashj'ir
+zones[203] = {
+    low = 80,
+    high = 82,
+    continent = Eastern_Kingdoms,
+    instances = {643},
+    faction = "Contested",
+    fishing_min = 480,
+    herbs = {"Azshara's Veil", "Stormvine"},
+    nodes = {"Obsidium Deposit", "Rich Obsidium Deposit"},
+}
+
+-- Deepholm
+zones[207] = {
+    low = 82,
+    high = 83,
+    continent = Eastern_Kingdoms,
+    instances = {725},
+    faction = "Contested",
+    herbs = {"Heartblossom", "Cinderbloom"},
+    nodes = {"Elementium Vein", "Rich Elementium Vein"},
+}
+
+-- Uldum
+zones[249] = {
+    low = 83,
+    high = 84,
+    continent = Kalimdor,
+    instances = {755, 644, 657},
+    faction = "Contested",
+    fishing_min = 530,
+    herbs = {"Whiptail", "Cinderbloom"},
+    nodes = {"Elementium Vein", "Rich Elementium Vein", "Pyrite Deposit"},
+}
+
+-- Twilight Highlands
+zones[241] = {
+    low = 84,
+    high = 85,
+    continent = Eastern_Kingdoms,
+    instances = {670, 645},
+    raids = {669, 671},
+    faction = "Contested",
+    fishing_min = 530,
+    herbs = {"Twilight Jasmine", "Cinderbloom", "Heartblossom"},
+    nodes = {"Elementium Vein", "Rich Elementium Vein", "Pyrite Deposit", "Rich Pyrite Deposit"},
+}
+
+-- Tol Barad Peninsula
+zones[245] = {
+    low = 85,
+    high = 85,
+    continent = Eastern_Kingdoms,
+    faction = "Contested",
+    fishing_min = 555,
+    herbs = {"Whiptail", "Azshara's Veil"},
+    nodes = {"Elementium Vein", "Rich Elementium Vein"},
+}
+
+-- Tol Barad
+zones[244] = {
+    low = 85,
+    high = 85,
+    continent = Eastern_Kingdoms,
+    raids = {757},
+    faction = "Contested",
+    fishing_min = 555,
+    herbs = {"Whiptail", "Azshara's Veil"},
+    nodes = {"Elementium Vein", "Rich Elementium Vein"},
+}
+
+-- Molten Front
+zones[338] = {
+    low = 85,
+    high = 85,
+    continent = Kalimdor,
+    faction = "Contested",
+    herbs = {"Cinderbloom"},
+    nodes = {"Elementium Vein", "Rich Elementium Vein", "Pyrite Deposit"},
+}
+
+-- ============================================================================
+-- MoP: WotLK/Cata Cities
+-- ============================================================================
+
+-- Orgrimmar
+zones[85] = {
+    low = 1,
+    high = MAX_LEVEL,
+    continent = Kalimdor,
+    instances = {389},
+    faction = "Horde",
+    fishing_min = 1,
+}
+
+-- Thunder Bluff
+zones[88] = {
+    low = 1,
+    high = MAX_LEVEL,
+    continent = Kalimdor,
+    faction = "Horde",
+    fishing_min = 1,
+}
+
+-- Undercity
+zones[90] = {
+    low = 1,
+    high = MAX_LEVEL,
+    continent = Eastern_Kingdoms,
+    faction = "Horde",
+    fishing_min = 1,
+}
+
+-- Silvermoon City
+zones[110] = {
+    low = 1,
+    high = MAX_LEVEL,
+    continent = Eastern_Kingdoms,
+    faction = "Horde",
+}
+
+-- Darnassus
+zones[89] = {
+    low = 1,
+    high = MAX_LEVEL,
+    continent = Kalimdor,
+    faction = "Alliance",
+    fishing_min = 1,
+}
+
+-- Ironforge
+zones[87] = {
+    low = 1,
+    high = MAX_LEVEL,
+    continent = Eastern_Kingdoms,
+    faction = "Alliance",
+    fishing_min = 1,
+}
+
+-- Stormwind City
+zones[84] = {
+    low = 1,
+    high = MAX_LEVEL,
+    continent = Eastern_Kingdoms,
+    instances = {34},
+    faction = "Alliance",
+    fishing_min = 1,
+}
+
+-- The Exodar
+zones[103] = {
+    low = 1,
+    high = MAX_LEVEL,
+    continent = Kalimdor,
+    faction = "Alliance",
+}
+
+-- Shattrath City
+zones[111] = {
+    low = 1,
+    high = MAX_LEVEL,
+    continent = Outland,
+    faction = "Contested",
+}
+
+-- ============================================================================
+-- MoP: Pandaria Zones
+-- ============================================================================
+
+-- The Jade Forest
+zones[371] = {
+    low = 85,
+    high = 86,
+    continent = Pandaria,
+    instances = {960},
+    faction = "Contested",
+    fishing_min = 650,
+    herbs = {"Green Tea Leaf", "Rain Poppy", "Silkweed"},
+    nodes = {"Ghost Iron Deposit", "Rich Ghost Iron Deposit"},
+}
+
+-- Valley of the Four Winds
+zones[376] = {
+    low = 86,
+    high = 87,
+    continent = Pandaria,
+    instances = {961},
+    faction = "Contested",
+    fishing_min = 700,
+    herbs = {"Green Tea Leaf", "Silkweed", "Rain Poppy", "Golden Lotus"},
+    nodes = {"Ghost Iron Deposit", "Rich Ghost Iron Deposit"},
+}
+
+-- Krasarang Wilds
+zones[418] = {
+    low = 86,
+    high = 87,
+    continent = Pandaria,
+    faction = "Contested",
+    fishing_min = 700,
+    herbs = {"Green Tea Leaf", "Silkweed", "Rain Poppy", "Golden Lotus"},
+    nodes = {"Ghost Iron Deposit", "Rich Ghost Iron Deposit"},
+}
+
+-- Kun-Lai Summit
+zones[379] = {
+    low = 87,
+    high = 88,
+    continent = Pandaria,
+    instances = {959, 994},
+    raids = {1008},
+    faction = "Contested",
+    fishing_min = 750,
+    herbs = {"Snow Lily", "Green Tea Leaf", "Silkweed", "Golden Lotus"},
+    nodes = {"Ghost Iron Deposit", "Rich Ghost Iron Deposit", "Trillium Vein", "Rich Trillium Vein"},
+}
+
+-- Townlong Steppes
+zones[388] = {
+    low = 88,
+    high = 89,
+    continent = Pandaria,
+    instances = {1011},
+    faction = "Contested",
+    fishing_min = 800,
+    herbs = {"Snow Lily", "Fool's Cap", "Green Tea Leaf", "Golden Lotus"},
+    nodes = {"Ghost Iron Deposit", "Rich Ghost Iron Deposit", "Trillium Vein", "Rich Trillium Vein"},
+}
+
+-- Dread Wastes
+zones[422] = {
+    low = 89,
+    high = 90,
+    continent = Pandaria,
+    raids = {1009},
+    faction = "Contested",
+    fishing_min = 825,
+    herbs = {"Fool's Cap", "Snow Lily", "Green Tea Leaf", "Golden Lotus"},
+    nodes = {"Ghost Iron Deposit", "Rich Ghost Iron Deposit", "Trillium Vein", "Rich Trillium Vein", "Kyparite Deposit", "Rich Kyparite Deposit"},
+}
+
+-- Vale of Eternal Blossoms
+zones[390] = {
+    low = 90,
+    high = 90,
+    continent = Pandaria,
+    instances = {994, 962},
+    raids = {1136},
+    faction = "Contested",
+    fishing_min = 825,
+    herbs = {"Green Tea Leaf", "Snow Lily", "Fool's Cap", "Golden Lotus"},
+    nodes = {"Ghost Iron Deposit", "Rich Ghost Iron Deposit", "Trillium Vein", "Rich Trillium Vein"},
+}
+
+-- The Veiled Stair
+zones[433] = {
+    low = 87,
+    high = 90,
+    continent = Pandaria,
+    raids = {996},
+    faction = "Contested",
+}
+
+-- Isle of Thunder (Patch 5.2)
+zones[504] = {
+    low = 90,
+    high = 90,
+    continent = Pandaria,
+    raids = {1098},
+    faction = "Contested",
+    fishing_min = 825,
+    herbs = {"Snow Lily", "Fool's Cap", "Golden Lotus"},
+    nodes = {"Ghost Iron Deposit", "Rich Ghost Iron Deposit", "Trillium Vein", "Rich Trillium Vein"},
+}
+
+-- Timeless Isle (Patch 5.4)
+zones[554] = {
+    low = 90,
+    high = 90,
+    continent = Pandaria,
+    faction = "Contested",
+    fishing_min = 825,
+}
+
+-- ============================================================================
+-- MoP: Dungeon Instance Data
+-- ============================================================================
+
+-- Temple of the Jade Serpent
+instances[960] = {
+    low = 85,
+    high = 90,
+    continent = Pandaria,
+    entrance = {56.8, 58.2},
+}
+
+-- Stormstout Brewery
+instances[961] = {
+    low = 86,
+    high = 90,
+    continent = Pandaria,
+    entrance = {36.1, 69.1},
+}
+
+-- Shado-Pan Monastery
+instances[959] = {
+    low = 87,
+    high = 90,
+    continent = Pandaria,
+    entrance = {36.8, 47.5},
+}
+
+-- Gate of the Setting Sun
+instances[962] = {
+    low = 90,
+    high = 90,
+    continent = Pandaria,
+    entrance = {15.8, 74.3},
+}
+
+-- Mogu'shan Palace
+instances[994] = {
+    low = 87,
+    high = 90,
+    continent = Pandaria,
+    entrance = {80.7, 32.8},
+}
+
+-- Siege of Niuzao Temple
+instances[1011] = {
+    low = 90,
+    high = 90,
+    continent = Pandaria,
+    entrance = {34.6, 81.4},
+}
+
+-- Scarlet Halls (MoP revamp)
+instances[1001] = {
+    low = 26,
+    high = 90,
+    continent = Eastern_Kingdoms,
+    entrance = {84.3, 30.6},
+}
+
+-- Scarlet Monastery (MoP revamp)
+instances[1004] = {
+    low = 28,
+    high = 90,
+    continent = Eastern_Kingdoms,
+    entrance = {85.3, 30.6},
+}
+
+-- Scholomance (MoP revamp)
+instances[1007] = {
+    low = 38,
+    high = 90,
+    continent = Eastern_Kingdoms,
+    entrance = {69, 73},
+}
+
+-- ============================================================================
+-- MoP: WotLK Dungeon Instance Data
+-- ============================================================================
+
+-- Utgarde Keep
+instances[574] = {
+    low = 69,
+    high = 72,
+    continent = Northrend,
+    entrance = {57.3, 46.7},
+}
+
+-- The Nexus
+instances[576] = {
+    low = 69,
+    high = 73,
+    continent = Northrend,
+    entrance = {27.5, 26.0},
+}
+
+-- Azjol-Nerub
+instances[601] = {
+    low = 72,
+    high = 74,
+    continent = Northrend,
+    entrance = {26.0, 50.8},
+}
+
+-- Ahn'kahet: The Old Kingdom
+instances[619] = {
+    low = 73,
+    high = 75,
+    continent = Northrend,
+    entrance = {28.5, 51.5},
+}
+
+-- Drak'Tharon Keep
+instances[600] = {
+    low = 74,
+    high = 76,
+    continent = Northrend,
+    entrance = {28.6, 86.8},
+}
+
+-- The Violet Hold
+instances[608] = {
+    low = 75,
+    high = 77,
+    continent = Northrend,
+    entrance = {66.8, 68.2},
+}
+
+-- Gundrak
+instances[604] = {
+    low = 76,
+    high = 78,
+    continent = Northrend,
+    entrance = {76.1, 20.7},
+}
+
+-- Halls of Stone
+instances[599] = {
+    low = 77,
+    high = 79,
+    continent = Northrend,
+    entrance = {39.5, 26.9},
+}
+
+-- Halls of Lightning
+instances[602] = {
+    low = 79,
+    high = 80,
+    continent = Northrend,
+    entrance = {45.4, 21.4},
+}
+
+-- The Oculus
+instances[578] = {
+    low = 79,
+    high = 80,
+    continent = Northrend,
+    entrance = {27.5, 27.0},
+}
+
+-- Utgarde Pinnacle
+instances[575] = {
+    low = 79,
+    high = 80,
+    continent = Northrend,
+    entrance = {57.3, 46.5},
+}
+
+-- The Culling of Stratholme
+instances[595] = {
+    low = 79,
+    high = 80,
+    continent = Northrend,
+    entrance = {66.0, 49.0},
+}
+
+-- Trial of the Champion
+instances[650] = {
+    low = 80,
+    high = 80,
+    continent = Northrend,
+    entrance = {74.2, 20.5},
+}
+
+-- The Forge of Souls
+instances[632] = {
+    low = 80,
+    high = 80,
+    continent = Northrend,
+    entrance = {52.6, 89.4},
+}
+
+-- Pit of Saron
+instances[658] = {
+    low = 80,
+    high = 80,
+    continent = Northrend,
+    entrance = {52.6, 89.2},
+}
+
+-- Halls of Reflection
+instances[668] = {
+    low = 80,
+    high = 80,
+    continent = Northrend,
+    entrance = {52.6, 89.0},
+}
+
+-- ============================================================================
+-- MoP: Cataclysm Dungeon Instance Data
+-- ============================================================================
+
+-- Blackrock Caverns
+instances[645] = {
+    low = 80,
+    high = 85,
+    continent = Eastern_Kingdoms,
+    entrance = {66.4, 62.0},
+}
+
+-- Throne of the Tides
+instances[643] = {
+    low = 80,
+    high = 85,
+    continent = Eastern_Kingdoms,
+    entrance = {69.3, 25.0},
+}
+
+-- The Stonecore
+instances[725] = {
+    low = 82,
+    high = 85,
+    continent = Eastern_Kingdoms,
+    entrance = {47.7, 52.0},
+}
+
+-- The Vortex Pinnacle
+instances[657] = {
+    low = 82,
+    high = 85,
+    continent = Kalimdor,
+    entrance = {76.5, 84.3},
+}
+
+-- Lost City of the Tol'vir
+instances[755] = {
+    low = 83,
+    high = 85,
+    continent = Kalimdor,
+    entrance = {60.5, 64.2},
+}
+
+-- Halls of Origination
+instances[644] = {
+    low = 83,
+    high = 85,
+    continent = Kalimdor,
+    entrance = {71.7, 52.1},
+}
+
+-- Grim Batol
+instances[670] = {
+    low = 84,
+    high = 85,
+    continent = Eastern_Kingdoms,
+    entrance = {19.1, 53.8},
+}
+
+-- Zul'Aman (Cata)
+instances[568] = {
+    low = 85,
+    high = 85,
+    continent = Eastern_Kingdoms,
+    entrance = {81.8, 64.3},
+}
+
+-- Zul'Gurub (Cata)
+instances[859] = {
+    low = 85,
+    high = 85,
+    continent = Eastern_Kingdoms,
+    entrance = {72.0, 33.0},
+}
+
+-- End Time
+instances[938] = {
+    low = 85,
+    high = 85,
+    continent = Kalimdor,
+    entrance = {66.0, 49.0},
+}
+
+-- Well of Eternity
+instances[939] = {
+    low = 85,
+    high = 85,
+    continent = Kalimdor,
+    entrance = {66.0, 49.0},
+}
+
+-- Hour of Twilight
+instances[940] = {
+    low = 85,
+    high = 85,
+    continent = Kalimdor,
+    entrance = {66.0, 49.0},
+}
+
+-- ============================================================================
+-- MoP: WotLK Raid Instance Data
+-- ============================================================================
+
+-- Naxxramas (WotLK)
+raids[533] = {
+    low = 80,
+    high = 80,
+    players = 10,
+    continent = Northrend,
+    entrance = {87.3, 51.0},
+}
+
+-- The Obsidian Sanctum
+raids[615] = {
+    low = 80,
+    high = 80,
+    players = 10,
+    continent = Northrend,
+    entrance = {60.0, 57.0},
+}
+
+-- The Eye of Eternity
+raids[616] = {
+    low = 80,
+    high = 80,
+    players = 10,
+    continent = Northrend,
+    entrance = {27.5, 26.0},
+}
+
+-- Ulduar
+raids[603] = {
+    low = 80,
+    high = 80,
+    players = 10,
+    continent = Northrend,
+    entrance = {41.6, 17.8},
+}
+
+-- Trial of the Crusader
+raids[649] = {
+    low = 80,
+    high = 80,
+    players = 10,
+    continent = Northrend,
+    entrance = {75.1, 21.8},
+}
+
+-- Vault of Archavon
+raids[624] = {
+    low = 80,
+    high = 80,
+    players = 10,
+    continent = Northrend,
+    entrance = {50.0, 11.4},
+}
+
+-- Icecrown Citadel
+raids[631] = {
+    low = 80,
+    high = 80,
+    players = 10,
+    continent = Northrend,
+    entrance = {53.9, 87.3},
+}
+
+-- The Ruby Sanctum
+raids[724] = {
+    low = 80,
+    high = 80,
+    players = 10,
+    continent = Northrend,
+    entrance = {60.0, 57.0},
+}
+
+-- ============================================================================
+-- MoP: Cataclysm Raid Instance Data
+-- ============================================================================
+
+-- Blackwing Descent
+raids[669] = {
+    low = 85,
+    high = 85,
+    players = 10,
+    continent = Eastern_Kingdoms,
+    entrance = {23.4, 26.4},
+}
+
+-- The Bastion of Twilight
+raids[671] = {
+    low = 85,
+    high = 85,
+    players = 10,
+    continent = Eastern_Kingdoms,
+    entrance = {33.8, 78.2},
+}
+
+-- Throne of the Four Winds
+raids[754] = {
+    low = 85,
+    high = 85,
+    players = 10,
+    continent = Kalimdor,
+    entrance = {38.4, 80.6},
+}
+
+-- Firelands
+raids[720] = {
+    low = 85,
+    high = 85,
+    players = 10,
+    continent = Kalimdor,
+    entrance = {47.3, 78.3},
+}
+
+-- Dragon Soul
+raids[967] = {
+    low = 85,
+    high = 85,
+    players = 10,
+    continent = Kalimdor,
+    entrance = {66.0, 49.0},
+}
+
+-- Baradin Hold
+raids[757] = {
+    low = 85,
+    high = 85,
+    players = 10,
+    continent = Eastern_Kingdoms,
+    entrance = {46.3, 47.5},
+}
+
+-- ============================================================================
+-- MoP: WotLK/Cata Battleground Data
+-- ============================================================================
+
+-- Strand of the Ancients
+battlegrounds[607] = {
+    low = 71,
+    high = MAX_LEVEL,
+    horde_entrance = {},
+    alliance_entrance = {},
+    players = 15,
+}
+
+-- Isle of Conquest
+battlegrounds[628] = {
+    low = 75,
+    high = MAX_LEVEL,
+    horde_entrance = {},
+    alliance_entrance = {},
+    players = 40,
+}
+
+-- Twin Peaks
+battlegrounds[726] = {
+    low = 85,
+    high = MAX_LEVEL,
+    horde_entrance = {},
+    alliance_entrance = {},
+    players = 10,
+}
+
+-- Battle for Gilneas
+battlegrounds[761] = {
+    low = 85,
+    high = MAX_LEVEL,
+    horde_entrance = {},
+    alliance_entrance = {},
+    players = 10,
+}
+
+-- ============================================================================
+-- MoP: Raid Instance Data
+-- ============================================================================
+
+-- Mogu'shan Vaults
+raids[1008] = {
+    low = 90,
+    high = 90,
+    players = 10,
+    continent = Pandaria,
+    entrance = {59.6, 39.2},
+}
+
+-- Heart of Fear
+raids[1009] = {
+    low = 90,
+    high = 90,
+    players = 10,
+    continent = Pandaria,
+    entrance = {39.0, 35.0},
+}
+
+-- Terrace of Endless Spring
+raids[996] = {
+    low = 90,
+    high = 90,
+    players = 10,
+    continent = Pandaria,
+    entrance = {47.9, 61.3},
+}
+
+-- Throne of Thunder
+raids[1098] = {
+    low = 90,
+    high = 90,
+    players = 10,
+    continent = Pandaria,
+    entrance = {63.5, 32.2},
+}
+
+-- Siege of Orgrimmar
+raids[1136] = {
+    low = 90,
+    high = 90,
+    players = 10,
+    continent = Pandaria,
+    entrance = {74.0, 42.2},
+}
+
+-- ============================================================================
+-- MoP: Battleground Data
+-- ============================================================================
+
+-- Temple of Kotmogu
+battlegrounds[998] = {
+    low = 90,
+    high = 90,
+    horde_entrance = {},
+    alliance_entrance = {},
+    players = 10,
+}
+
+-- Silvershard Mines
+battlegrounds[727] = {
+    low = 90,
+    high = 90,
+    horde_entrance = {},
+    alliance_entrance = {},
+    players = 10,
+}
+
+-- Deepwind Gorge
+battlegrounds[1105] = {
+    low = 90,
+    high = 90,
+    horde_entrance = {},
+    alliance_entrance = {},
+    players = 15,
+}
+
+-- ============================================================================
+-- MoP: Herb Data
+-- ============================================================================
+
+herbs["Green Tea Leaf"] = {
+    low = 500,
+    high = 575,
+}
+
+herbs["Silkweed"] = {
+    low = 500,
+    high = 575,
+}
+
+herbs["Rain Poppy"] = {
+    low = 525,
+    high = 575,
+}
+
+herbs["Snow Lily"] = {
+    low = 550,
+    high = 600,
+}
+
+herbs["Fool's Cap"] = {
+    low = 575,
+    high = 600,
+}
+
+herbs["Golden Lotus"] = {
+    low = 550,
+    high = 600,
+}
+
+-- WotLK Herbs
+herbs["Goldclover"] = {
+    low = 350,
+    high = 450,
+}
+
+herbs["Tiger Lily"] = {
+    low = 375,
+    high = 450,
+}
+
+herbs["Talandra's Rose"] = {
+    low = 385,
+    high = 450,
+}
+
+herbs["Adder's Tongue"] = {
+    low = 400,
+    high = 450,
+}
+
+herbs["Lichbloom"] = {
+    low = 425,
+    high = 450,
+}
+
+herbs["Icethorn"] = {
+    low = 435,
+    high = 450,
+}
+
+herbs["Frost Lotus"] = {
+    low = 450,
+    high = 450,
+}
+
+-- Cataclysm Herbs
+herbs["Cinderbloom"] = {
+    low = 425,
+    high = 525,
+}
+
+herbs["Stormvine"] = {
+    low = 425,
+    high = 525,
+}
+
+herbs["Azshara's Veil"] = {
+    low = 450,
+    high = 525,
+}
+
+herbs["Heartblossom"] = {
+    low = 475,
+    high = 525,
+}
+
+herbs["Whiptail"] = {
+    low = 500,
+    high = 525,
+}
+
+herbs["Twilight Jasmine"] = {
+    low = 525,
+    high = 525,
+}
+
+-- ============================================================================
+-- MoP: Mining Node Data
+-- ============================================================================
+
+-- WotLK Nodes
+nodes["Cobalt Deposit"] = {
+    low = 350,
+    high = 400,
+}
+
+nodes["Rich Cobalt Deposit"] = {
+    low = 375,
+    high = 425,
+}
+
+nodes["Saronite Deposit"] = {
+    low = 400,
+    high = 450,
+}
+
+nodes["Rich Saronite Deposit"] = {
+    low = 425,
+    high = 450,
+}
+
+nodes["Titanium Vein"] = {
+    low = 450,
+    high = 450,
+}
+
+-- Cataclysm Nodes
+nodes["Obsidium Deposit"] = {
+    low = 425,
+    high = 500,
+}
+
+nodes["Rich Obsidium Deposit"] = {
+    low = 450,
+    high = 525,
+}
+
+nodes["Elementium Vein"] = {
+    low = 475,
+    high = 525,
+}
+
+nodes["Rich Elementium Vein"] = {
+    low = 500,
+    high = 525,
+}
+
+nodes["Pyrite Deposit"] = {
+    low = 525,
+    high = 525,
+}
+
+nodes["Rich Pyrite Deposit"] = {
+    low = 525,
+    high = 525,
+}
+
+-- MoP Nodes
+nodes["Ghost Iron Deposit"] = {
+    low = 500,
+    high = 575,
+}
+
+nodes["Rich Ghost Iron Deposit"] = {
+    low = 550,
+    high = 600,
+}
+
+nodes["Trillium Vein"] = {
+    low = 575,
+    high = 600,
+}
+
+nodes["Rich Trillium Vein"] = {
+    low = 600,
+    high = 600,
+}
+
+nodes["Kyparite Deposit"] = {
+    low = 550,
+    high = 600,
+}
+
+nodes["Rich Kyparite Deposit"] = {
+    low = 575,
+    high = 600,
+}
+
+end -- if isMoP
