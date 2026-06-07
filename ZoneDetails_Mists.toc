@@ -1,8 +1,8 @@
-## Interface: 50503
+## Interface: 50503, 50504
 ## Title: ZoneDetails
 ## Author: Burserg
-## Version: 2.1.0
-## Notes: Zone details overlay for the World Map - MoP Classic Edition
+## Version: 2.1.1
+## Notes: Zone details overlay for the World Map
 ## OptionalDeps: LibStub, CallbackHandler-1.0
 ## SavedVariables: ZoneDetailsDB
 ## X-Embeds: Ace3
