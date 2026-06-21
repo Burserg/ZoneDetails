@@ -89,6 +89,12 @@ local defaults = {
         zoneTextFontSize = 32,
         zoneTextLocation = "TOP",
 
+        -- Instance Text Map Options
+        instanceTextFontSize = 32,
+
+        -- On-Hover (pin) Text Options
+        hoverTextFontSize = 32,
+
         -- Profession Text Map Options
         profTextFontSize = 32,
         profTextLocation = "BOTTOMLEFT",
@@ -101,7 +107,11 @@ local options = {
     type = "group",
     childGroups = "tab",
     get = function(k) return db[k.arg] end,
-    set = function(k, v) db[k.arg] = v end,
+    set = function(k, v)
+        db[k.arg] = v
+        -- Re-render the map text so toggles and size changes apply immediately.
+        ZoneDetails:RefreshMapText()
+    end,
     args = {
         msgSettings = {
             type = "group",
@@ -182,6 +192,44 @@ local options = {
                     desc = L["Toggles the display of battlegrounds."],
                     width = "full",
                 },
+                textSizeHeader = {
+                    type = "header",
+                    name = L["Text Size"],
+                    order = 10,
+                },
+                zoneTextFontSize = {
+                    type = "range",
+                    order = 11,
+                    name = L["Zone Text Size"],
+                    arg = "zoneTextFontSize",
+                    desc = L["Adjusts the size of the zone name text shown on the map."],
+                    min = 12,
+                    max = 64,
+                    step = 1,
+                    width = "full",
+                },
+                instanceTextFontSize = {
+                    type = "range",
+                    order = 12,
+                    name = L["Instance Text Size"],
+                    arg = "instanceTextFontSize",
+                    desc = L["Adjusts the size of the static instance, raid, and battleground block shown on the map."],
+                    min = 12,
+                    max = 64,
+                    step = 1,
+                    width = "full",
+                },
+                hoverTextFontSize = {
+                    type = "range",
+                    order = 13,
+                    name = L["Hover Text Size"],
+                    arg = "hoverTextFontSize",
+                    desc = L["Adjusts the size of the instance/raid details shown above the cursor when hovering their map icons."],
+                    min = 12,
+                    max = 64,
+                    step = 1,
+                    width = "full",
+                },
             }
         },
         professionOptions = {
@@ -219,6 +267,22 @@ local options = {
                     desc = L["Toggles the display of minerals that can be found in current zone."],
                     width = "full",
                 },
+                profTextSizeHeader = {
+                    type = "header",
+                    name = L["Text Size"],
+                    order = 10,
+                },
+                profTextFontSize = {
+                    type = "range",
+                    order = 11,
+                    name = L["Profession Text Size"],
+                    arg = "profTextFontSize",
+                    desc = L["Adjusts the size of the profession text shown on the map."],
+                    min = 12,
+                    max = 64,
+                    step = 1,
+                    width = "full",
+                },
             }
         },
     }
@@ -233,87 +297,79 @@ end
 -- Map Data Provider Mixins
 -- ============================================================================
 
--- Use Blizzard MixIns to add a new overlay to the Map Frame
-function ZoneDetailsDataProviderMixin:OnAdded(mapCanvas)
-    MapCanvasDataProviderMixin.OnAdded(self, mapCanvas)
+-- Returns a font path whose glyphs are guaranteed to already be loaded.
+-- WorldMapTextFont's font file is not loaded into the glyph cache until the
+-- game's own on-screen zone text (or another frame) renders with it, so a
+-- FontString using it can stay invisible until then. GameFontNormal uses the
+-- standard UI font, which is always loaded.
+local function GetMapFontPath()
+    local path = GameFontNormal and GameFontNormal:GetFont()
+    if path then return path end
+    return "Fonts\\FRIZQT__.TTF"
+end
 
-    if not self.ZoneTxtFrame then
-        self.ZoneTxtFrame = CreateFrame("Frame", nil, self:GetMap():GetCanvasContainer())
-        self.ZoneTxtFrame:SetSize(400, 128)
+-- The overlay text lives on frames parented to UIParent, anchored over the map
+-- canvas. The hover tooltip uses the same parenting and composites reliably;
+-- frames parented to the map canvas itself did not draw until an unrelated
+-- frame forced a render pass. This keeps the text off the map's pin/canvas
+-- pipeline entirely (and away from the player-position pin).
+function ZoneDetailsDataProviderMixin:EnsureFrames()
+    if self.overlay then return end
 
-        self.ZoneText = self.ZoneTxtFrame:CreateFontString(nil, "OVERLAY", "WorldMapTextFont")
-        local font, size = WorldMapTextFont:GetFont()
-        self.ZoneText:SetFont(font, size, "OUTLINE")
-        self.ZoneText:SetPoint("TOP", self.ZoneTxtFrame, "TOP", 0, -35)
-        self.ZoneText:SetScale(0.4)
-        self.ZoneText:SetJustifyH("CENTER")
-    else
-        self.ZoneTxtFrame:SetParent(self:GetMap():GetCanvasContainer())
+    local container = self:GetMap():GetCanvasContainer()
+
+    local overlay = CreateFrame("Frame", nil, UIParent)
+    overlay:SetFrameStrata("FULLSCREEN_DIALOG")
+    overlay:SetAllPoints(container)
+    overlay:Hide()
+    -- Track the map: stay anchored over the canvas, and hide when it closes.
+    overlay:SetScript("OnUpdate", function(self)
+        if not WorldMapFrame:IsShown() then
+            self:Hide()
+        end
+    end)
+
+    local function makeText(point, justify)
+        local fs = overlay:CreateFontString(nil, "OVERLAY")
+        fs:SetScale(0.4)
+        fs:SetJustifyH(justify)
+        fs:SetPoint(point, overlay, point, point == "TOP" and 0 or (justify == "RIGHT" and -10 or 10),
+            point == "TOP" and -35 or 10)
+        return fs
     end
 
-    if not self.InstanceTxtFrame then
-        self.InstanceTxtFrame = CreateFrame("Frame", nil, self:GetMap():GetCanvasContainer())
-        self.InstanceTxtFrame:SetSize(400, 400)
-
-        self.InstanceText = self.InstanceTxtFrame:CreateFontString(nil, "OVERLAY", "WorldMapTextFont")
-        local font, size = WorldMapTextFont:GetFont()
-        self.InstanceText:SetFont(font, size, "OUTLINE")
-        self.InstanceText:SetPoint("BOTTOMRIGHT", self.InstanceTxtFrame, "BOTTOMRIGHT", 0, 0)
-        self.InstanceText:SetScale(0.4)
-        self.InstanceText:SetJustifyH("RIGHT")
-    else
-        self.InstanceTxtFrame:SetParent(self:GetMap():GetCanvasContainer())
-    end
-
-    if not self.ProfTxtFrame then
-        self.ProfTxtFrame = CreateFrame("Frame", nil, self:GetMap():GetCanvasContainer())
-        self.ProfTxtFrame:SetSize(400, 128)
-
-        self.ProfessionText = self.ProfTxtFrame:CreateFontString(nil, "OVERLAY", "WorldMapTextFont")
-        local font, size = WorldMapTextFont:GetFont()
-        self.ProfessionText:SetFont(font, size, "OUTLINE")
-        self.ProfessionText:SetPoint("BOTTOMLEFT", self.ProfTxtFrame, "BOTTOMLEFT", 0, 0)
-        self.ProfessionText:SetScale(0.4)
-        self.ProfessionText:SetJustifyH("LEFT")
-    else
-        self.ProfTxtFrame:SetParent(self:GetMap():GetCanvasContainer())
-    end
-
-    self.ZoneTxtFrame:SetPoint("TOP", self:GetMap():GetCanvasContainer(), 10, 10)
-    self.InstanceTxtFrame:SetPoint("BOTTOMRIGHT", self:GetMap():GetCanvasContainer(), -10, 10)
-    self.ProfTxtFrame:SetPoint("BOTTOMLEFT", self:GetMap():GetCanvasContainer(), 10, 10)
-
-    self.ZoneTxtFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-    self.ZoneTxtFrame.dataProvider = self
-
-    self.InstanceTxtFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-    self.InstanceTxtFrame.dataProvider = self
-
-    self.ProfTxtFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-    self.ProfTxtFrame.dataProvider = self
-
-    self.ZoneTxtFrame:Show()
-    self.InstanceTxtFrame:Show()
-    self.ProfTxtFrame:Show()
-    self.ZoneText:Show()
-    self.InstanceText:Show()
-    self.ProfessionText:Show()
+    self.overlay = overlay
+    self.zoneText = makeText("TOP", "CENTER")
+    self.instanceText = makeText("BOTTOMRIGHT", "RIGHT")
+    self.profText = makeText("BOTTOMLEFT", "LEFT")
 end
 
 function ZoneDetailsDataProviderMixin:RefreshAllData(fromOnShow)
-    local zoneInfo = ZoneDetails:GetZoneHeader()
-    local instanceInfo = ZoneDetails:GetInstanceDetails()
-    local prof = ZoneDetails:GetProfessionDetails()
+    if not self:GetMap() then return end
+    self:EnsureFrames()
 
-    self.ZoneText:SetText(zoneInfo or "")
-    self.InstanceText:SetText(instanceInfo or "")
-    self.ProfessionText:SetText(prof or "")
+    local font = GetMapFontPath()
+    local function query(fn)
+        local ok, res = pcall(fn, ZoneDetails)
+        return ok and res or nil
+    end
+
+    self.zoneText:SetFont(font, (db and db.zoneTextFontSize) or 32, "OUTLINE")
+    self.zoneText:SetText(query(ZoneDetails.GetZoneHeader) or "")
+
+    self.instanceText:SetFont(font, (db and db.instanceTextFontSize) or 32, "OUTLINE")
+    self.instanceText:SetText(query(ZoneDetails.GetInstanceDetails) or "")
+
+    self.profText:SetFont(font, (db and db.profTextFontSize) or 32, "OUTLINE")
+    self.profText:SetText(query(ZoneDetails.GetProfessionDetails) or "")
+
+    self.overlay:Show()
 end
 
 function ZoneDetailsDataProviderMixin:RemoveAllData()
-    self.ZoneTxtFrame:Hide()
-    self.InstanceTxtFrame:Hide()
-    self.ProfTxtFrame:Hide()
+    if self.overlay then
+        self.overlay:Hide()
+    end
 end
 
 function ZoneDetailsPinDataProviderMixin:RefreshAllData(fromOnShow)
@@ -327,8 +383,67 @@ function ZoneDetailsPinDataProviderMixin:RefreshAllData(fromOnShow)
     end
 end
 
+-- Cursor-following frame used to show an instance/raid's details just above the
+-- mouse pointer while its map icon is hovered. Created lazily and reused.
+local pinHoverFrame
+local function GetPinHoverFrame()
+    if pinHoverFrame then return pinHoverFrame end
+
+    local f = CreateFrame("Frame", "ZoneDetailsPinHoverFrame", UIParent)
+    f:SetFrameStrata("TOOLTIP")
+    f:SetSize(1, 1)
+    f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.text:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
+    f.text:SetJustifyH("CENTER")
+    f:Hide()
+
+    -- Keep the frame anchored just above the cursor while it is shown, and hide
+    -- it if the world map closes without a mouse-leave firing on the pin.
+    f:SetScript("OnUpdate", function(self)
+        if not WorldMapFrame:IsShown() then
+            self:Hide()
+            return
+        end
+        local x, y = GetCursorPosition()
+        local scale = UIParent:GetEffectiveScale()
+        self:ClearAllPoints()
+        self:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", x / scale, (y / scale) + 20)
+    end)
+
+    pinHoverFrame = f
+    return f
+end
+
 function ZoneDetailsGlobalPinMixin:OnAcquired(myInfo)
     BaseMapPoiPinMixin.OnAcquired(self, myInfo)
+    self.zdType = myInfo.zdType
+    self.zdHoverText = myInfo.zdHoverText
+end
+
+function ZoneDetailsGlobalPinMixin:OnMouseEnter()
+    if not self.zdHoverText then return end
+
+    -- The hover text rides on the entrance pins, so gate it by the pin toggles.
+    local show
+    if self.zdType == "raid" then
+        show = db.showRaidPins
+    else
+        show = db.showInstancePins
+    end
+    if not show then return end
+
+    local f = GetPinHoverFrame()
+    f.text:SetFont(GetMapFontPath(), db.hoverTextFontSize, "OUTLINE")
+    f.text:SetText(self.zdHoverText)
+    f:SetWidth(f.text:GetStringWidth() + 16)
+    f:SetHeight(f.text:GetStringHeight() + 8)
+    f:Show()
+end
+
+function ZoneDetailsGlobalPinMixin:OnMouseLeave()
+    if pinHoverFrame then
+        pinHoverFrame:Hide()
+    end
 end
 
 function ZoneDetailsGlobalPinMixin:OnMouseUp(btn)
@@ -346,6 +461,14 @@ function ZoneDetails:OnEnable()
     WorldMapFrame:AddDataProvider(ZoneDetailsPinDataProviderMixin)
 end
 
+-- Force an immediate re-render of the overlay text (used for live option
+-- changes). The map's own refresh cycle handles normal opens and zone navigation.
+function ZoneDetails:RefreshMapText()
+    if WorldMapFrame:IsShown() then
+        ZoneDetailsDataProviderMixin:RefreshAllData()
+    end
+end
+
 function ZoneDetails:OnDisable()
     WorldMapFrame:RemoveDataProvider(ZoneDetailsDataProviderMixin)
     WorldMapFrame:RemoveDataProvider(ZoneDetailsPinDataProviderMixin)
@@ -361,6 +484,7 @@ function ZoneDetails:OnInitialize()
     self:RegisterChatCommand("zd", function() InterfaceOptionsFrame_OpenToCategory(self.optionsFrame) end)
     self:RegisterEvent("ZONE_CHANGED")
     self:RegisterEvent("PLAYER_LEVEL_CHANGED")
+    self:RegisterEvent("PLAYER_ENTERING_WORLD")
 
     self.db.RegisterCallback(self, "OnProfileChanged", "Refresh")
     self.db.RegisterCallback(self, "OnProfileCopied", "Refresh")
@@ -393,6 +517,13 @@ function ZoneDetails:GetZoneHeader()
     )
 end
 
+-- GetRealZoneText can return nil before instance/raid map data is cached (e.g.
+-- right after a login or reload). Fall back to a non-nil value so string.format
+-- never errors and blanks the whole overlay.
+local function SafeZoneText(id)
+    return GetRealZoneText(id) or tostring(id)
+end
+
 function ZoneDetails:GetInstanceDetails()
     local mapID = WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
@@ -402,6 +533,9 @@ function ZoneDetails:GetInstanceDetails()
 
     local text = ""
 
+    -- The static block lists every instance/raid in the zone. Hovering an
+    -- instance/raid map icon additionally pops its details up above the cursor
+    -- (see the pin hover handlers above).
     if db.showInstances then
         if zones[mapID].instances then
             text = text .. ("\n|cffffff00%s:|r"):format(L["Instances"])
@@ -410,7 +544,7 @@ function ZoneDetails:GetInstanceDetails()
                 if instData then
                     local r2, g2, b2 = self:LevelColor(instData.low, instData.high, playerLevel)
                     local r1, g1, b1 = self:GetFactionColor(mapID)
-                    local instName = type(instance) == "number" and GetRealZoneText(instance) or instance
+                    local instName = type(instance) == "number" and SafeZoneText(instance) or instance
                     text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
                         r1 * 255, g1 * 255, b1 * 255, instName,
                         r2 * 255, g2 * 255, b2 * 255,
@@ -429,7 +563,7 @@ function ZoneDetails:GetInstanceDetails()
                         if instData then
                             local r2, g2, b2 = self:LevelColor(instData.low, instData.high, playerLevel)
                             local r1, g1, b1 = self:GetFactionColor(mapID)
-                            local instName = type(instance) == "number" and GetRealZoneText(instance) or instance
+                            local instName = type(instance) == "number" and SafeZoneText(instance) or instance
                             text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
                                 r1 * 255, g1 * 255, b1 * 255, instName,
                                 r2 * 255, g2 * 255, b2 * 255,
@@ -450,7 +584,7 @@ function ZoneDetails:GetInstanceDetails()
                 local r2, g2, b2 = self:LevelColor(bgData.low, bgData.high, playerLevel)
                 local r1, g1, b1 = self:GetFactionColor(mapID)
                 text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r   %s-%s"):format(
-                    r1 * 255, g1 * 255, b1 * 255, GetRealZoneText(battleground),
+                    r1 * 255, g1 * 255, b1 * 255, SafeZoneText(battleground),
                     r2 * 255, g2 * 255, b2 * 255,
                     bgData.low, bgData.high,
                     bgData.players, L["Man"]
@@ -467,7 +601,7 @@ function ZoneDetails:GetInstanceDetails()
                 local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
                 local r1, g1, b1 = self:GetFactionColor(mapID)
                 text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d]|r   %s-%s"):format(
-                    r1 * 255, g1 * 255, b1 * 255, GetRealZoneText(raid),
+                    r1 * 255, g1 * 255, b1 * 255, SafeZoneText(raid),
                     r2 * 255, g2 * 255, b2 * 255,
                     raidData.high,
                     raidData.players, L["Man"]
@@ -505,7 +639,7 @@ function ZoneDetails:GetProfessions()
         end
     else
         -- Classic/TBC use the skill line API
-        for skillIndex = 1, GetNumSkillLines() do
+        for skillIndex = 1, GetNumSkillLines() or 0 do
             local skillName, isHeader, _, skillRank = GetSkillLineInfo(skillIndex)
             if not isHeader then
                 for _, v in pairs(profs) do
@@ -612,7 +746,7 @@ function ZoneDetails:GetPins()
                 if instData and instData.entrance then
                     local r2, g2, b2 = self:LevelColor(instData.low, instData.high, playerLevel)
                     local r1, g1, b1 = self:GetFactionColor(mapID)
-                    local instName = type(instance) == "number" and GetRealZoneText(instance) or instance
+                    local instName = type(instance) == "number" and SafeZoneText(instance) or instance
                     local name = ("|cff%02x%02x%02x%s|r"):format(r1 * 255, g1 * 255, b1 * 255, instName)
                     local description = ("|cff%02x%02x%02x[%d-%d]|r "):format(
                         r2 * 255, g2 * 255, b2 * 255, instData.low, instData.high
@@ -623,6 +757,8 @@ function ZoneDetails:GetPins()
                         name = name,
                         description = description,
                         atlasName = "Dungeon",
+                        zdType = "instance",
+                        zdHoverText = name .. " " .. description,
                     }
                 end
             end
@@ -636,7 +772,7 @@ function ZoneDetails:GetPins()
                         if instData and instData.entrance then
                             local r2, g2, b2 = self:LevelColor(instData.low, instData.high, playerLevel)
                             local r1, g1, b1 = self:GetFactionColor(mapID)
-                            local instName = type(instance) == "number" and GetRealZoneText(instance) or instance
+                            local instName = type(instance) == "number" and SafeZoneText(instance) or instance
                             local name = ("|cff%02x%02x%02x%s|r"):format(r1 * 255, g1 * 255, b1 * 255, instName)
                             local description = ("|cff%02x%02x%02x[%d-%d]|r "):format(
                                 r2 * 255, g2 * 255, b2 * 255, instData.low, instData.high
@@ -647,6 +783,8 @@ function ZoneDetails:GetPins()
                                 name = name,
                                 description = description,
                                 atlasName = "Dungeon",
+                                zdType = "instance",
+                                zdHoverText = name .. " " .. description,
                             }
                         end
                     end
@@ -663,7 +801,7 @@ function ZoneDetails:GetPins()
                 local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
                 local r1, g1, b1 = self:GetFactionColor(mapID)
                 local name = ("|cff%02x%02x%02x%s|r %s-Man"):format(
-                    r1 * 255, g1 * 255, b1 * 255, GetRealZoneText(raid), raidData.players
+                    r1 * 255, g1 * 255, b1 * 255, SafeZoneText(raid), raidData.players
                 )
                 local description = ("|cff%02x%02x%02x[%d-%d]|r"):format(
                     r2 * 255, g2 * 255, b2 * 255, raidData.low, raidData.high
@@ -674,6 +812,8 @@ function ZoneDetails:GetPins()
                     name = name,
                     description = description,
                     atlasName = "Raid",
+                    zdType = "raid",
+                    zdHoverText = name .. " " .. description,
                 }
             end
         end
@@ -696,6 +836,22 @@ end
 
 function ZoneDetails:PLAYER_LEVEL_CHANGED(event, oldLevel, newLevel)
     playerLevel = newLevel
+end
+
+-- Fired after a login/reload once the player's world data is available. At addon
+-- load UnitLevel/UnitFactionGroup can be unset, so refresh them and repopulate
+-- the map text now that the zone information has actually loaded.
+function ZoneDetails:PLAYER_ENTERING_WORLD()
+    playerLevel = UnitLevel("player") or playerLevel
+
+    local faction = UnitFactionGroup("player")
+    if faction then
+        isAlliance = faction == "Alliance"
+        isHorde = faction == "Horde"
+        isNeutral = not isAlliance and not isHorde
+    end
+
+    self:RefreshMapText()
 end
 
 -- ============================================================================
@@ -948,7 +1104,7 @@ zones[1942] = {
     low = 10,
     high = 20,
     continent = Eastern_Kingdoms,
-    raids = {568},
+    raids = {1977},
     faction = "Horde",
     fishing_min = 20,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
@@ -1959,7 +2115,7 @@ raids[564] = {
 }
 
 -- Zul'Aman
-raids[568] = {
+raids[1977] = {
     low = 70,
     high = 70,
     players = 10,
