@@ -372,50 +372,83 @@ local function StripColors(s)
     return (s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
 end
 
+-- Apply a header string to our zone text, scaled to the current setting.
+local function SetZoneHeaderText(prov, text)
+    prov.zoneText:SetFont(GetMapFontPath(), (db and db.zoneTextFontSize) or 32, "OUTLINE")
+    prov.zoneText:SetText(text or "")
+end
+
 -- Post-hook for Blizzard's area-label frame. Runs every frame after Blizzard's
--- EvaluateLabels sets the text. While we have data for the shown/hovered zone, fully
--- suppress the native top-center label and fold whatever it would show into our own
--- header: "Zone [low-high]" over open ground, "Zone - Subzone [low-high]" over a named
--- subzone. This keeps a single, non-overlapping label.
+-- EvaluateLabels sets the text. While we own the shown/hovered zone, suppress the
+-- native top-center label and fold what it would show into our single header:
+--   * open ground -> "Zone [low-high]"
+--   * a named subzone (same map) -> "Zone - Subzone [low-high]"
+--   * an adjacent zone (a different map at the edge) -> that zone's own header
+--     "Adjacent [its-low-high]" with its level colour, replacing the title.
+-- The adjacent vs. subzone distinction comes from C_Map.GetMapInfoAtPosition (the same
+-- call Blizzard uses), not from parsing the label text, so adjacent zones get their
+-- correct level range even when Blizzard didn't append one.
 local function AreaLabelPostHook(labelFrame)
     if not ZoneDetails:IsEnabled() then return end
 
     local prov = ZoneDetailsDataProviderMixin
     if not prov.zoneText or not labelFrame.Name then return end
+    if not (db and db.showZoneLevel) then prov.lastRawNative = nil; return end
 
-    -- On a zone map this is the shown map; on a continent map it's the hovered zone.
-    local id = (prov.hoverMode and prov.lastHoveredID) or WorldMapFrame:GetMapID()
-    -- Leave the native label alone unless our custom header is replacing it.
-    if not (id and zones[id] and db and db.showZoneLevel) then
-        prov.lastRawNative = nil
+    local raw = labelFrame.Name:GetText() or ""
+
+    -- Continent map: the hover tick already resolved the hovered child zone.
+    if prov.hoverMode then
+        local id = prov.lastHoveredID
+        if not (id and zones[id]) then prov.lastRawNative = nil; return end
+        labelFrame.Name:SetText("")
+        if raw == prov.lastRawNative and id == prov.lastHeaderId then return end
+        prov.lastRawNative, prov.lastHeaderId = raw, id
+        local ok, header = pcall(ZoneDetails.GetZoneHeader, ZoneDetails, id)
+        SetZoneHeaderText(prov, ok and header or "")
         return
     end
 
-    local raw = labelFrame.Name:GetText() or ""
+    -- Zone map: only take over when the shown map is a zone we track.
+    local displayedMapID = WorldMapFrame:GetMapID()
+    if not (displayedMapID and zones[displayedMapID]) then prov.lastRawNative = nil; return end
+
     labelFrame.Name:SetText("")  -- our header carries the (sub)zone instead
 
-    -- Only recompute the header when the native text or the zone actually changes.
-    if raw == prov.lastRawNative and id == prov.lastHeaderId then return end
-    prov.lastRawNative = raw
-    prov.lastHeaderId = id
-
-    local info = C_Map.GetMapInfo(id)
-    local zoneName = info and info.name
-    local stripped = StripColors(raw)
-
-    -- A plain name that isn't the zone itself, and isn't an adjacent zone's
-    -- "Name (min-max)" edge label, is a subzone to fold into the header.
-    local subzone
-    if zoneName and stripped ~= "" and stripped ~= zoneName
-        and stripped:sub(1, #zoneName + 2) ~= zoneName .. " ("
-        and not stripped:find(" %(%d+.-%)$")
-    then
-        subzone = stripped
+    -- Resolve what the cursor is over via C_Map.GetMapInfoAtPosition (not the label
+    -- text): an adjacent zone is a different map and must be recognised even when
+    -- Blizzard shows the same text for it as for somewhere in the current zone.
+    local headerID, subzone = displayedMapID, nil
+    if WorldMapFrame:IsCanvasMouseFocus() then
+        local nx, ny = WorldMapFrame:GetNormalizedCursorPosition()
+        local posInfo = C_Map.GetMapInfoAtPosition(displayedMapID, nx, ny)
+        if posInfo and posInfo.mapID and posInfo.mapID ~= displayedMapID then
+            -- Cursor is over a different map (an adjacent zone): replace the title.
+            headerID = posInfo.mapID
+        else
+            -- Same map: a non-zone-name label is a subzone to fold in.
+            local dispInfo = C_Map.GetMapInfo(displayedMapID)
+            local stripped = StripColors(raw)
+            if dispInfo and stripped ~= "" and stripped ~= dispInfo.name then
+                subzone = stripped
+            end
+        end
     end
 
-    local ok, header = pcall(ZoneDetails.GetZoneHeader, ZoneDetails, id, subzone)
-    prov.zoneText:SetFont(GetMapFontPath(), (db and db.zoneTextFontSize) or 32, "OUTLINE")
-    prov.zoneText:SetText((ok and header) or "")
+    -- Rebuild only when the resolved zone/subzone (or the fallback text) changes.
+    if headerID == prov.lastHeaderId and subzone == prov.lastSub and raw == prov.lastRawNative then
+        return
+    end
+    prov.lastHeaderId, prov.lastSub, prov.lastRawNative = headerID, subzone, raw
+
+    local header
+    if zones[headerID] then
+        local ok, h = pcall(ZoneDetails.GetZoneHeader, ZoneDetails, headerID, subzone)
+        header = ok and h or nil
+    end
+    -- Untracked adjacent zone: relocate Blizzard's own label so its name still shows
+    -- in place of (rather than overlapping) our header.
+    SetZoneHeaderText(prov, header or raw)
 end
 
 -- Find Blizzard's area-label frame among the World Map's data providers and install
