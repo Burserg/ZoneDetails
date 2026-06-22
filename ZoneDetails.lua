@@ -708,10 +708,10 @@ local function SafeZoneText(id)
     return GetRealZoneText(id) or tostring(id)
 end
 
--- Raid size label. A fixed-size raid renders as "40-Man"; a raid may override with
--- its own label via playerText (e.g. a flexible "20-40 Player" raid).
-local function RaidSizeText(raidData)
-    return raidData.playerText or (tostring(raidData.players) .. "-" .. L["Man"])
+-- Player-count label shared by raids and battlegrounds, e.g. "40 Player" or, for a
+-- flexible raid, "20-40 Player".
+local function PlayerCountText(data)
+    return tostring(data.players) .. " " .. L["Player"]
 end
 
 function ZoneDetails:GetInstanceDetails(mapID)
@@ -773,11 +773,11 @@ function ZoneDetails:GetInstanceDetails(mapID)
             if bgData then
                 local r2, g2, b2 = self:LevelColor(bgData.low, bgData.high, playerLevel)
                 local r1, g1, b1 = self:GetFactionColor(mapID)
-                text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r   %s-%s"):format(
+                text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r   %s"):format(
                     r1 * 255, g1 * 255, b1 * 255, SafeZoneText(battleground),
                     r2 * 255, g2 * 255, b2 * 255,
                     bgData.low, bgData.high,
-                    bgData.players, L["Man"]
+                    PlayerCountText(bgData)
                 )
             end
         end
@@ -794,7 +794,7 @@ function ZoneDetails:GetInstanceDetails(mapID)
                     r1 * 255, g1 * 255, b1 * 255, (type(raid) == "number" and SafeZoneText(raid) or raid),
                     r2 * 255, g2 * 255, b2 * 255,
                     raidData.high,
-                    RaidSizeText(raidData)
+                    PlayerCountText(raidData)
                 )
             end
         end
@@ -991,7 +991,7 @@ function ZoneDetails:GetPins()
                 local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
                 local r1, g1, b1 = self:GetFactionColor(mapID)
                 local name = ("|cff%02x%02x%02x%s|r %s"):format(
-                    r1 * 255, g1 * 255, b1 * 255, (type(raid) == "number" and SafeZoneText(raid) or raid), RaidSizeText(raidData)
+                    r1 * 255, g1 * 255, b1 * 255, (type(raid) == "number" and SafeZoneText(raid) or raid), PlayerCountText(raidData)
                 )
                 local description = ("|cff%02x%02x%02x[%d-%d]|r"):format(
                     r2 * 255, g2 * 255, b2 * 255, raidData.low, raidData.high
@@ -2733,8 +2733,7 @@ if isSoD then
     raids[L["Scarlet Enclave"]] = {
         low = 60,
         high = 60,
-        players = 40,
-        playerText = "20-40 " .. L["Player"],
+        players = "20-40",
         continent = Eastern_Kingdoms,
         entrance = {67, 85},
     }

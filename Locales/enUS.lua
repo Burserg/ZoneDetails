@@ -45,7 +45,6 @@ L["Adjusts the size of the profession text shown on the map."] = true
 L["Instances"] = true
 L["Battlegrounds"] = true
 L["Raids"] = true
-L["Man"] = true
 L["Leatherworking"] = true
 L["Tailoring"] = true
 L["Alchemy"] = true
