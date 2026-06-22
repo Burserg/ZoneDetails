@@ -365,6 +365,53 @@ function ZoneDetailsDataProviderMixin:EnsureFrames()
     self.profText = makeText("BOTTOMLEFT", "LEFT")
 end
 
+-- Remove the color escape sequences Blizzard embeds in some area-label names so we
+-- can compare against the plain zone name.
+local function StripColors(s)
+    if not s then return "" end
+    return (s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+end
+
+-- Post-hook for Blizzard's area-label frame: blank the native zone name only when it
+-- duplicates the zone our own colored zoneText is already showing, so the two no
+-- longer stack. Subzone names (e.g. "Goldshire") and other zones' names are left
+-- untouched. Runs once per frame after Blizzard's EvaluateLabels sets the text.
+local function AreaLabelPostHook(labelFrame)
+    if not ZoneDetails:IsEnabled() then return end
+
+    local prov = ZoneDetailsDataProviderMixin
+    -- On a zone map this is the shown map; on a continent map it's the hovered zone.
+    local id = (prov.hoverMode and prov.lastHoveredID) or WorldMapFrame:GetMapID()
+    -- Only hide the native name when our custom replacement is actually on screen.
+    if not (id and zones[id] and db and db.showZoneLevel) then return end
+
+    local info = C_Map.GetMapInfo(id)
+    if not info or not info.name then return end
+
+    local text = StripColors(labelFrame.Name:GetText())
+    -- Exact name (current zone) or Blizzard's "Name (min-max)" form (continent/edge),
+    -- but never a subzone whose name merely differs.
+    if text == info.name or text:sub(1, #info.name + 2) == info.name .. " (" then
+        labelFrame.Name:SetText("")
+    end
+end
+
+-- Find Blizzard's area-label frame among the World Map's data providers and install
+-- the post-hook once. If the layout differs on some client the frame just isn't
+-- found and the native zone name keeps showing (no error).
+function ZoneDetailsDataProviderMixin:EnsureAreaLabelHook()
+    if self.areaLabelHooked then return end
+    if not WorldMapFrame.dataProviders then return end
+
+    for dp in pairs(WorldMapFrame.dataProviders) do
+        if type(dp) == "table" and dp.Label and dp.Label.EvaluateLabels and dp.Label.Name then
+            hooksecurefunc(dp.Label, "EvaluateLabels", AreaLabelPostHook)
+            self.areaLabelHooked = true
+            return
+        end
+    end
+end
+
 -- Render the three corner strings from an explicit zone id. A nil mapID resolves
 -- to the map currently shown (the static zone-map overlay); an id with no zones[]
 -- entry yields nil from every getter, which clears the strings. pcall keeps a data
@@ -411,6 +458,7 @@ end
 function ZoneDetailsDataProviderMixin:RefreshAllData(fromOnShow)
     if not self:GetMap() then return end
     self:EnsureFrames()
+    self:EnsureAreaLabelHook()
 
     local mapInfo = C_Map.GetMapInfo(WorldMapFrame:GetMapID())
     local mapType = mapInfo and mapInfo.mapType
