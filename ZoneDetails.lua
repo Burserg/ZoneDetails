@@ -1280,7 +1280,7 @@ zones[1942] = {
     low = 10,
     high = 20,
     continent = Eastern_Kingdoms,
-    raids = {1977},
+    raids = {568},
     faction = "Horde",
     fishing_min = 20,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
@@ -2291,7 +2291,7 @@ raids[564] = {
 }
 
 -- Zul'Aman
-raids[1977] = {
+raids[568] = {
     low = 70,
     high = 70,
     players = 10,
