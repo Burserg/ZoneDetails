@@ -18,4 +18,4 @@ This addon is designed for WoW Classic.
     * [x] Text size selector
 * [x] Entrance pins on map
 * [x] Account for Complex maps such as Scarlet Monastery, Ahn'Qiraj, and Dire Maul.
-* [X] Add support for map details on continent/world maps on hover.
+* [x] Add support for map details on continent/world maps on hover.

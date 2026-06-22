@@ -84,6 +84,7 @@ local defaults = {
         showZoneLevel = true,
         showBattlegrounds = true,
         showRaids = true,
+        showContinentHover = true,
 
         -- Zone Text Map Options
         zoneTextFontSize = 32,
@@ -190,6 +191,14 @@ local options = {
                     name = L["Show Battlegrounds"],
                     arg = "showBattlegrounds",
                     desc = L["Toggles the display of battlegrounds."],
+                    width = "full",
+                },
+                showContinentHover = {
+                    type = "toggle",
+                    order = 6,
+                    name = L["Show Continent Hover"],
+                    arg = "showContinentHover",
+                    desc = L["Toggles showing a zone's details in the corner overlay when you hover it on a continent map."],
                     width = "full",
                 },
                 textSizeHeader = {
@@ -318,15 +327,27 @@ function ZoneDetailsDataProviderMixin:EnsureFrames()
 
     local container = self:GetMap():GetCanvasContainer()
 
+    -- Captured so the OnUpdate closure (whose self is the frame, not the data
+    -- provider) can read the provider's hover state.
+    local provider = self
+
     local overlay = CreateFrame("Frame", nil, UIParent)
     overlay:SetFrameStrata("FULLSCREEN_DIALOG")
     overlay:SetAllPoints(container)
     overlay:Hide()
-    -- Track the map: stay anchored over the canvas, and hide when it closes.
-    overlay:SetScript("OnUpdate", function(self)
+    -- Track the map: stay anchored over the canvas, and hide when it closes. On
+    -- continent maps the overlay also drives the cursor-zone hover (see
+    -- ContinentHoverTick); the overlay must stay shown there or this never runs.
+    overlay:SetScript("OnUpdate", function(self, elapsed)
         if not WorldMapFrame:IsShown() then
             self:Hide()
+            return
         end
+        if not provider.hoverMode then return end
+        provider.hoverAccum = (provider.hoverAccum or 0) + elapsed
+        if provider.hoverAccum < 0.05 then return end
+        provider.hoverAccum = 0
+        provider:ContinentHoverTick()
     end)
 
     local function makeText(point, justify)
@@ -344,13 +365,14 @@ function ZoneDetailsDataProviderMixin:EnsureFrames()
     self.profText = makeText("BOTTOMLEFT", "LEFT")
 end
 
-function ZoneDetailsDataProviderMixin:RefreshAllData(fromOnShow)
-    if not self:GetMap() then return end
-    self:EnsureFrames()
-
+-- Render the three corner strings from an explicit zone id. A nil mapID resolves
+-- to the map currently shown (the static zone-map overlay); an id with no zones[]
+-- entry yields nil from every getter, which clears the strings. pcall keeps a data
+-- error from breaking the per-frame hover loop.
+function ZoneDetailsDataProviderMixin:ApplyTexts(mapID)
     local font = GetMapFontPath()
     local function query(fn)
-        local ok, res = pcall(fn, ZoneDetails)
+        local ok, res = pcall(fn, ZoneDetails, mapID)
         return ok and res or nil
     end
 
@@ -362,7 +384,45 @@ function ZoneDetailsDataProviderMixin:RefreshAllData(fromOnShow)
 
     self.profText:SetFont(font, (db and db.profTextFontSize) or 32, "OUTLINE")
     self.profText:SetText(query(ZoneDetails.GetProfessionDetails) or "")
+end
 
+-- Throttled from the overlay OnUpdate while on a continent map: find the zone under
+-- the cursor and render its details into the corner overlay.
+function ZoneDetailsDataProviderMixin:ContinentHoverTick()
+    -- Cursor over the sidebar/options/pins or off the canvas: clear once.
+    if not WorldMapFrame:IsCanvasMouseFocus() then
+        if self.lastHoveredID ~= nil then
+            self.lastHoveredID = nil
+            self:ApplyTexts(nil)
+        end
+        return
+    end
+
+    local nx, ny = WorldMapFrame:GetNormalizedCursorPosition()
+    local hovered = C_Map.GetMapInfoAtPosition(WorldMapFrame:GetMapID(), nx, ny)
+    -- Return shape varies across Classic clients: a table or a bare id.
+    local id = type(hovered) == "table" and hovered.mapID or hovered
+
+    if id == self.lastHoveredID then return end
+    self.lastHoveredID = id
+    self:ApplyTexts(id)
+end
+
+function ZoneDetailsDataProviderMixin:RefreshAllData(fromOnShow)
+    if not self:GetMap() then return end
+    self:EnsureFrames()
+
+    local mapInfo = C_Map.GetMapInfo(WorldMapFrame:GetMapID())
+    local mapType = mapInfo and mapInfo.mapType
+
+    -- On a continent map (with the toggle on) the corner overlay is driven by the
+    -- cursor-zone hover; start blank and let ContinentHoverTick fill it in. Any
+    -- other map renders its own zone statically (or stays blank if it has no data).
+    self.hoverMode = (mapType == WORLDMAP_CONTINENT and db and db.showContinentHover) and true or false
+    self.hoverAccum = 0
+    self.lastHoveredID = nil
+
+    self:ApplyTexts(nil)
     self.overlay:Show()
 end
 
@@ -499,8 +559,13 @@ end
 -- Zone Details Display
 -- ============================================================================
 
-function ZoneDetails:GetZoneHeader()
-    local mapID = WorldMapFrame:GetMapID()
+-- mapID is optional: when omitted it resolves to the map currently shown on the
+-- World Map (the static zone-map overlay). The continent hover passes an explicit
+-- zone id so the same builder can render whichever zone the cursor is over. The
+-- guards below validate the resolved id either way (a continent/world id has no
+-- zones[] entry and is rejected).
+function ZoneDetails:GetZoneHeader(mapID)
+    mapID = mapID or WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
     if not mapInfo then return nil end
     if mapInfo.mapType ~= WORLDMAP_ZONE then return nil end
@@ -524,8 +589,8 @@ local function SafeZoneText(id)
     return GetRealZoneText(id) or tostring(id)
 end
 
-function ZoneDetails:GetInstanceDetails()
-    local mapID = WorldMapFrame:GetMapID()
+function ZoneDetails:GetInstanceDetails(mapID)
+    mapID = mapID or WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
     if not mapInfo then return nil end
     if mapInfo.mapType ~= WORLDMAP_ZONE then return nil end
@@ -654,8 +719,8 @@ function ZoneDetails:GetProfessions()
     return professions
 end
 
-function ZoneDetails:GetProfessionDetails()
-    local mapID = WorldMapFrame:GetMapID()
+function ZoneDetails:GetProfessionDetails(mapID)
+    mapID = mapID or WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
     if not mapInfo then return nil end
 
