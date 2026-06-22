@@ -84,6 +84,7 @@ local defaults = {
         showZoneLevel = true,
         showBattlegrounds = true,
         showRaids = true,
+        showContinentHover = true,
 
         -- Zone Text Map Options
         zoneTextFontSize = 32,
@@ -190,6 +191,14 @@ local options = {
                     name = L["Show Battlegrounds"],
                     arg = "showBattlegrounds",
                     desc = L["Toggles the display of battlegrounds."],
+                    width = "full",
+                },
+                showContinentHover = {
+                    type = "toggle",
+                    order = 6,
+                    name = L["Show Continent Hover"],
+                    arg = "showContinentHover",
+                    desc = L["Toggles showing a zone's details in the corner overlay when you hover it on a continent map."],
                     width = "full",
                 },
                 textSizeHeader = {
@@ -318,15 +327,27 @@ function ZoneDetailsDataProviderMixin:EnsureFrames()
 
     local container = self:GetMap():GetCanvasContainer()
 
+    -- Captured so the OnUpdate closure (whose self is the frame, not the data
+    -- provider) can read the provider's hover state.
+    local provider = self
+
     local overlay = CreateFrame("Frame", nil, UIParent)
     overlay:SetFrameStrata("FULLSCREEN_DIALOG")
     overlay:SetAllPoints(container)
     overlay:Hide()
-    -- Track the map: stay anchored over the canvas, and hide when it closes.
-    overlay:SetScript("OnUpdate", function(self)
+    -- Track the map: stay anchored over the canvas, and hide when it closes. On
+    -- continent maps the overlay also drives the cursor-zone hover (see
+    -- ContinentHoverTick); the overlay must stay shown there or this never runs.
+    overlay:SetScript("OnUpdate", function(self, elapsed)
         if not WorldMapFrame:IsShown() then
             self:Hide()
+            return
         end
+        if not provider.hoverMode then return end
+        provider.hoverAccum = (provider.hoverAccum or 0) + elapsed
+        if provider.hoverAccum < 0.05 then return end
+        provider.hoverAccum = 0
+        provider:ContinentHoverTick()
     end)
 
     local function makeText(point, justify)
@@ -344,13 +365,120 @@ function ZoneDetailsDataProviderMixin:EnsureFrames()
     self.profText = makeText("BOTTOMLEFT", "LEFT")
 end
 
-function ZoneDetailsDataProviderMixin:RefreshAllData(fromOnShow)
-    if not self:GetMap() then return end
-    self:EnsureFrames()
+-- Remove the color escape sequences Blizzard embeds in some area-label names so we
+-- can compare against the plain zone name.
+local function StripColors(s)
+    if not s then return "" end
+    return (s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+end
+
+-- Apply a header string to our zone text, scaled to the current setting.
+local function SetZoneHeaderText(prov, text)
+    prov.zoneText:SetFont(GetMapFontPath(), (db and db.zoneTextFontSize) or 32, "OUTLINE")
+    prov.zoneText:SetText(text or "")
+end
+
+-- Post-hook for Blizzard's area-label frame. Runs every frame after Blizzard's
+-- EvaluateLabels sets the text. While we own the shown/hovered zone, suppress the
+-- native top-center label and fold what it would show into our single header:
+--   * open ground -> "Zone [low-high]"
+--   * a named subzone (same map) -> "Zone - Subzone [low-high]"
+--   * an adjacent zone (a different map at the edge) -> that zone's own header
+--     "Adjacent [its-low-high]" with its level colour, replacing the title.
+-- The adjacent vs. subzone distinction comes from C_Map.GetMapInfoAtPosition (the same
+-- call Blizzard uses), not from parsing the label text, so adjacent zones get their
+-- correct level range even when Blizzard didn't append one.
+local function AreaLabelPostHook(labelFrame)
+    if not ZoneDetails:IsEnabled() then return end
+
+    local prov = ZoneDetailsDataProviderMixin
+    if not prov.zoneText or not labelFrame.Name then return end
+    if not (db and db.showZoneLevel) then prov.lastRawNative = nil; return end
+
+    local raw = labelFrame.Name:GetText() or ""
+
+    -- Continent map: the hover tick already resolved the hovered child zone.
+    if prov.hoverMode then
+        local id = prov.lastHoveredID
+        if not (id and zones[id]) then prov.lastRawNative = nil; return end
+        labelFrame.Name:SetText("")
+        if raw == prov.lastRawNative and id == prov.lastHeaderId then return end
+        prov.lastRawNative, prov.lastHeaderId = raw, id
+        local ok, header = pcall(ZoneDetails.GetZoneHeader, ZoneDetails, id)
+        SetZoneHeaderText(prov, ok and header or "")
+        return
+    end
+
+    -- Zone map: only take over when the shown map is a zone we track.
+    local displayedMapID = WorldMapFrame:GetMapID()
+    if not (displayedMapID and zones[displayedMapID]) then prov.lastRawNative = nil; return end
+
+    labelFrame.Name:SetText("")  -- our header carries the (sub)zone instead
+
+    -- Resolve what the cursor is over via C_Map.GetMapInfoAtPosition (not the label
+    -- text): an adjacent zone is a different map and must be recognised even when
+    -- Blizzard shows the same text for it as for somewhere in the current zone.
+    local headerID, subzone = displayedMapID, nil
+    if WorldMapFrame:IsCanvasMouseFocus() then
+        local nx, ny = WorldMapFrame:GetNormalizedCursorPosition()
+        local posInfo = C_Map.GetMapInfoAtPosition(displayedMapID, nx, ny)
+        if posInfo and posInfo.mapID and posInfo.mapID ~= displayedMapID then
+            -- Cursor is over a different map (an adjacent zone): replace the title.
+            headerID = posInfo.mapID
+        else
+            -- Same map: a non-zone-name label is a subzone to fold in.
+            local dispInfo = C_Map.GetMapInfo(displayedMapID)
+            local stripped = StripColors(raw)
+            if dispInfo and stripped ~= "" and stripped ~= dispInfo.name then
+                subzone = stripped
+            end
+        end
+    end
+
+    -- Rebuild only when the resolved zone/subzone (or the fallback text) changes.
+    if headerID == prov.lastHeaderId and subzone == prov.lastSub and raw == prov.lastRawNative then
+        return
+    end
+    prov.lastHeaderId, prov.lastSub, prov.lastRawNative = headerID, subzone, raw
+
+    local header
+    if zones[headerID] then
+        local ok, h = pcall(ZoneDetails.GetZoneHeader, ZoneDetails, headerID, subzone)
+        header = ok and h or nil
+    end
+    -- Untracked adjacent zone: relocate Blizzard's own label so its name still shows
+    -- in place of (rather than overlapping) our header.
+    SetZoneHeaderText(prov, header or raw)
+end
+
+-- Find Blizzard's area-label frame among the World Map's data providers and install
+-- the post-hook once. If the layout differs on some client the frame just isn't
+-- found and the native zone name keeps showing (no error).
+function ZoneDetailsDataProviderMixin:EnsureAreaLabelHook()
+    if self.areaLabelHooked then return end
+    if not WorldMapFrame.dataProviders then return end
+
+    for dp in pairs(WorldMapFrame.dataProviders) do
+        if type(dp) == "table" and dp.Label and dp.Label.EvaluateLabels and dp.Label.Name then
+            hooksecurefunc(dp.Label, "EvaluateLabels", AreaLabelPostHook)
+            self.areaLabelHooked = true
+            return
+        end
+    end
+end
+
+-- Render the three corner strings from an explicit zone id. A nil mapID resolves
+-- to the map currently shown (the static zone-map overlay); an id with no zones[]
+-- entry yields nil from every getter, which clears the strings. pcall keeps a data
+-- error from breaking the per-frame hover loop.
+function ZoneDetailsDataProviderMixin:ApplyTexts(mapID)
+    -- Invalidate the area-label hook's header cache so it rebuilds (with any subzone)
+    -- on the next frame rather than leaving the base header we set here.
+    self.lastRawNative = nil
 
     local font = GetMapFontPath()
     local function query(fn)
-        local ok, res = pcall(fn, ZoneDetails)
+        local ok, res = pcall(fn, ZoneDetails, mapID)
         return ok and res or nil
     end
 
@@ -362,7 +490,46 @@ function ZoneDetailsDataProviderMixin:RefreshAllData(fromOnShow)
 
     self.profText:SetFont(font, (db and db.profTextFontSize) or 32, "OUTLINE")
     self.profText:SetText(query(ZoneDetails.GetProfessionDetails) or "")
+end
 
+-- Throttled from the overlay OnUpdate while on a continent map: find the zone under
+-- the cursor and render its details into the corner overlay.
+function ZoneDetailsDataProviderMixin:ContinentHoverTick()
+    -- Cursor over the sidebar/options/pins or off the canvas: clear once.
+    if not WorldMapFrame:IsCanvasMouseFocus() then
+        if self.lastHoveredID ~= nil then
+            self.lastHoveredID = nil
+            self:ApplyTexts(nil)
+        end
+        return
+    end
+
+    local nx, ny = WorldMapFrame:GetNormalizedCursorPosition()
+    local hovered = C_Map.GetMapInfoAtPosition(WorldMapFrame:GetMapID(), nx, ny)
+    -- Return shape varies across Classic clients: a table or a bare id.
+    local id = type(hovered) == "table" and hovered.mapID or hovered
+
+    if id == self.lastHoveredID then return end
+    self.lastHoveredID = id
+    self:ApplyTexts(id)
+end
+
+function ZoneDetailsDataProviderMixin:RefreshAllData(fromOnShow)
+    if not self:GetMap() then return end
+    self:EnsureFrames()
+    self:EnsureAreaLabelHook()
+
+    local mapInfo = C_Map.GetMapInfo(WorldMapFrame:GetMapID())
+    local mapType = mapInfo and mapInfo.mapType
+
+    -- On a continent map (with the toggle on) the corner overlay is driven by the
+    -- cursor-zone hover; start blank and let ContinentHoverTick fill it in. Any
+    -- other map renders its own zone statically (or stays blank if it has no data).
+    self.hoverMode = (mapType == WORLDMAP_CONTINENT and db and db.showContinentHover) and true or false
+    self.hoverAccum = 0
+    self.lastHoveredID = nil
+
+    self:ApplyTexts(nil)
     self.overlay:Show()
 end
 
@@ -499,8 +666,14 @@ end
 -- Zone Details Display
 -- ============================================================================
 
-function ZoneDetails:GetZoneHeader()
-    local mapID = WorldMapFrame:GetMapID()
+-- mapID is optional: when omitted it resolves to the map currently shown on the
+-- World Map (the static zone-map overlay). The continent hover passes an explicit
+-- zone id so the same builder can render whichever zone the cursor is over. The
+-- guards below validate the resolved id either way (a continent/world id has no
+-- zones[] entry and is rejected). subzone is optional: when the cursor is over a
+-- named subzone, the header reads "Zone - Subzone [low-high]".
+function ZoneDetails:GetZoneHeader(mapID, subzone)
+    mapID = mapID or WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
     if not mapInfo then return nil end
     if mapInfo.mapType ~= WORLDMAP_ZONE then return nil end
@@ -508,6 +681,9 @@ function ZoneDetails:GetZoneHeader()
     if not db.showZoneLevel then return nil end
 
     local mapName = mapInfo.name
+    if subzone and subzone ~= "" then
+        mapName = mapName .. " - " .. subzone
+    end
     local r2, g2, b2 = self:LevelColor(zones[mapID].low, zones[mapID].high, playerLevel)
     local r1, g1, b1 = self:GetFactionColor(mapID)
     return ("|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
@@ -524,8 +700,8 @@ local function SafeZoneText(id)
     return GetRealZoneText(id) or tostring(id)
 end
 
-function ZoneDetails:GetInstanceDetails()
-    local mapID = WorldMapFrame:GetMapID()
+function ZoneDetails:GetInstanceDetails(mapID)
+    mapID = mapID or WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
     if not mapInfo then return nil end
     if mapInfo.mapType ~= WORLDMAP_ZONE then return nil end
@@ -654,8 +830,8 @@ function ZoneDetails:GetProfessions()
     return professions
 end
 
-function ZoneDetails:GetProfessionDetails()
-    local mapID = WorldMapFrame:GetMapID()
+function ZoneDetails:GetProfessionDetails(mapID)
+    mapID = mapID or WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
     if not mapInfo then return nil end
 
