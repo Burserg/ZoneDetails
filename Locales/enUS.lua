@@ -73,3 +73,4 @@ L["Dire Maul: North"] = true
 
 L["Demon Fall Canyon"] = true
 L["Scarlet Enclave"] = true
+L["Player"] = true

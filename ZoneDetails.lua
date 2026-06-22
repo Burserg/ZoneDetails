@@ -708,6 +708,12 @@ local function SafeZoneText(id)
     return GetRealZoneText(id) or tostring(id)
 end
 
+-- Raid size label. A fixed-size raid renders as "40-Man"; a raid may override with
+-- its own label via playerText (e.g. a flexible "20-40 Player" raid).
+local function RaidSizeText(raidData)
+    return raidData.playerText or (tostring(raidData.players) .. "-" .. L["Man"])
+end
+
 function ZoneDetails:GetInstanceDetails(mapID)
     mapID = mapID or WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
@@ -784,11 +790,11 @@ function ZoneDetails:GetInstanceDetails(mapID)
             if raidData then
                 local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
                 local r1, g1, b1 = self:GetFactionColor(mapID)
-                text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d]|r   %s-%s"):format(
+                text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d]|r   %s"):format(
                     r1 * 255, g1 * 255, b1 * 255, (type(raid) == "number" and SafeZoneText(raid) or raid),
                     r2 * 255, g2 * 255, b2 * 255,
                     raidData.high,
-                    raidData.players, L["Man"]
+                    RaidSizeText(raidData)
                 )
             end
         end
@@ -984,8 +990,8 @@ function ZoneDetails:GetPins()
             if raidData and raidData.entrance then
                 local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
                 local r1, g1, b1 = self:GetFactionColor(mapID)
-                local name = ("|cff%02x%02x%02x%s|r %s-Man"):format(
-                    r1 * 255, g1 * 255, b1 * 255, (type(raid) == "number" and SafeZoneText(raid) or raid), raidData.players
+                local name = ("|cff%02x%02x%02x%s|r %s"):format(
+                    r1 * 255, g1 * 255, b1 * 255, (type(raid) == "number" and SafeZoneText(raid) or raid), RaidSizeText(raidData)
                 )
                 local description = ("|cff%02x%02x%02x[%d-%d]|r"):format(
                     r2 * 255, g2 * 255, b2 * 255, raidData.low, raidData.high
@@ -2727,7 +2733,8 @@ if isSoD then
     raids[L["Scarlet Enclave"]] = {
         low = 60,
         high = 60,
-        players = "20-40",
+        players = 40,
+        playerText = "20-40 " .. L["Player"],
         continent = Eastern_Kingdoms,
         entrance = {67, 85},
     }
