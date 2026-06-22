@@ -372,28 +372,50 @@ local function StripColors(s)
     return (s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
 end
 
--- Post-hook for Blizzard's area-label frame: blank the native zone name only when it
--- duplicates the zone our own colored zoneText is already showing, so the two no
--- longer stack. Subzone names (e.g. "Goldshire") and other zones' names are left
--- untouched. Runs once per frame after Blizzard's EvaluateLabels sets the text.
+-- Post-hook for Blizzard's area-label frame. Runs every frame after Blizzard's
+-- EvaluateLabels sets the text. While we have data for the shown/hovered zone, fully
+-- suppress the native top-center label and fold whatever it would show into our own
+-- header: "Zone [low-high]" over open ground, "Zone - Subzone [low-high]" over a named
+-- subzone. This keeps a single, non-overlapping label.
 local function AreaLabelPostHook(labelFrame)
     if not ZoneDetails:IsEnabled() then return end
 
     local prov = ZoneDetailsDataProviderMixin
+    if not prov.zoneText or not labelFrame.Name then return end
+
     -- On a zone map this is the shown map; on a continent map it's the hovered zone.
     local id = (prov.hoverMode and prov.lastHoveredID) or WorldMapFrame:GetMapID()
-    -- Only hide the native name when our custom replacement is actually on screen.
-    if not (id and zones[id] and db and db.showZoneLevel) then return end
+    -- Leave the native label alone unless our custom header is replacing it.
+    if not (id and zones[id] and db and db.showZoneLevel) then
+        prov.lastRawNative = nil
+        return
+    end
+
+    local raw = labelFrame.Name:GetText() or ""
+    labelFrame.Name:SetText("")  -- our header carries the (sub)zone instead
+
+    -- Only recompute the header when the native text or the zone actually changes.
+    if raw == prov.lastRawNative and id == prov.lastHeaderId then return end
+    prov.lastRawNative = raw
+    prov.lastHeaderId = id
 
     local info = C_Map.GetMapInfo(id)
-    if not info or not info.name then return end
+    local zoneName = info and info.name
+    local stripped = StripColors(raw)
 
-    local text = StripColors(labelFrame.Name:GetText())
-    -- Exact name (current zone) or Blizzard's "Name (min-max)" form (continent/edge),
-    -- but never a subzone whose name merely differs.
-    if text == info.name or text:sub(1, #info.name + 2) == info.name .. " (" then
-        labelFrame.Name:SetText("")
+    -- A plain name that isn't the zone itself, and isn't an adjacent zone's
+    -- "Name (min-max)" edge label, is a subzone to fold into the header.
+    local subzone
+    if zoneName and stripped ~= "" and stripped ~= zoneName
+        and stripped:sub(1, #zoneName + 2) ~= zoneName .. " ("
+        and not stripped:find(" %(%d+.-%)$")
+    then
+        subzone = stripped
     end
+
+    local ok, header = pcall(ZoneDetails.GetZoneHeader, ZoneDetails, id, subzone)
+    prov.zoneText:SetFont(GetMapFontPath(), (db and db.zoneTextFontSize) or 32, "OUTLINE")
+    prov.zoneText:SetText((ok and header) or "")
 end
 
 -- Find Blizzard's area-label frame among the World Map's data providers and install
@@ -417,6 +439,10 @@ end
 -- entry yields nil from every getter, which clears the strings. pcall keeps a data
 -- error from breaking the per-frame hover loop.
 function ZoneDetailsDataProviderMixin:ApplyTexts(mapID)
+    -- Invalidate the area-label hook's header cache so it rebuilds (with any subzone)
+    -- on the next frame rather than leaving the base header we set here.
+    self.lastRawNative = nil
+
     local font = GetMapFontPath()
     local function query(fn)
         local ok, res = pcall(fn, ZoneDetails, mapID)
@@ -611,8 +637,9 @@ end
 -- World Map (the static zone-map overlay). The continent hover passes an explicit
 -- zone id so the same builder can render whichever zone the cursor is over. The
 -- guards below validate the resolved id either way (a continent/world id has no
--- zones[] entry and is rejected).
-function ZoneDetails:GetZoneHeader(mapID)
+-- zones[] entry and is rejected). subzone is optional: when the cursor is over a
+-- named subzone, the header reads "Zone - Subzone [low-high]".
+function ZoneDetails:GetZoneHeader(mapID, subzone)
     mapID = mapID or WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
     if not mapInfo then return nil end
@@ -621,6 +648,9 @@ function ZoneDetails:GetZoneHeader(mapID)
     if not db.showZoneLevel then return nil end
 
     local mapName = mapInfo.name
+    if subzone and subzone ~= "" then
+        mapName = mapName .. " - " .. subzone
+    end
     local r2, g2, b2 = self:LevelColor(zones[mapID].low, zones[mapID].high, playerLevel)
     local r1, g1, b1 = self:GetFactionColor(mapID)
     return ("|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
