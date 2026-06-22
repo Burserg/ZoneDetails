@@ -39,8 +39,11 @@ luac.out
 *.x86_64
 *.hex
 
-# Ignore Lib folder
+# Ignore Lib folder (fetched per-build by the packager / fetch-libs scripts)
 Libs/
+
+# Packager build output
+.release/
 
 # Ignore .Identifer files
 *.Identifier
