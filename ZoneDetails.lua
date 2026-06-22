@@ -54,6 +54,14 @@ local isVanilla = tocVersion < 20000
 local isTBC = tocVersion >= 20000 and tocVersion < 30000
 local isMoP = tocVersion >= 50000 and tocVersion < 60000
 
+-- Season of Discovery runs on the Era client, so tocVersion can't distinguish it.
+-- Guard every step: on clients without the seasons API the chain short-circuits to
+-- falsy with no error, and on a non-seasonal Era realm GetActiveSeason returns a
+-- non-SoD value.
+local isSoD = isVanilla and C_Seasons and C_Seasons.GetActiveSeason
+    and Enum and Enum.SeasonID and Enum.SeasonID.SeasonOfDiscovery
+    and C_Seasons.GetActiveSeason() == Enum.SeasonID.SeasonOfDiscovery
+
 local MAX_LEVEL = isMoP and 90 or (isTBC and 70 or 60)
 
 local Azeroth = "Azeroth"
@@ -777,7 +785,7 @@ function ZoneDetails:GetInstanceDetails(mapID)
                 local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
                 local r1, g1, b1 = self:GetFactionColor(mapID)
                 text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d]|r   %s-%s"):format(
-                    r1 * 255, g1 * 255, b1 * 255, SafeZoneText(raid),
+                    r1 * 255, g1 * 255, b1 * 255, (type(raid) == "number" and SafeZoneText(raid) or raid),
                     r2 * 255, g2 * 255, b2 * 255,
                     raidData.high,
                     raidData.players, L["Man"]
@@ -977,7 +985,7 @@ function ZoneDetails:GetPins()
                 local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
                 local r1, g1, b1 = self:GetFactionColor(mapID)
                 local name = ("|cff%02x%02x%02x%s|r %s-Man"):format(
-                    r1 * 255, g1 * 255, b1 * 255, SafeZoneText(raid), raidData.players
+                    r1 * 255, g1 * 255, b1 * 255, (type(raid) == "number" and SafeZoneText(raid) or raid), raidData.players
                 )
                 local description = ("|cff%02x%02x%02x[%d-%d]|r"):format(
                     r2 * 255, g2 * 255, b2 * 255, raidData.low, raidData.high
@@ -2697,6 +2705,37 @@ nodes["Khorium Vein"] = {
     low = 375,
     high = 400,
 }
+
+-- ============================================================================
+-- Season of Discovery Data (Era client with an active SoD season only)
+-- ============================================================================
+
+if isSoD then
+    -- Demon Fall Canyon: SoD-only dungeon in southeast Ashenvale (Felfire Hill).
+    instances[L["Demon Fall Canyon"]] = {
+        low = 57,
+        high = 60,
+        continent = Kalimdor,
+        entrance = {84.5, 75.0},
+    }
+    if zones[1440] then
+        zones[1440].instances = zones[1440].instances or {}
+        table.insert(zones[1440].instances, L["Demon Fall Canyon"])
+    end
+
+    -- Scarlet Enclave: SoD-only 20-40 player raid in far-eastern Eastern Plaguelands.
+    raids[L["Scarlet Enclave"]] = {
+        low = 60,
+        high = 60,
+        players = "20-40",
+        continent = Eastern_Kingdoms,
+        entrance = {67, 85},
+    }
+    if zones[1423] then
+        zones[1423].raids = zones[1423].raids or {}
+        table.insert(zones[1423].raids, L["Scarlet Enclave"])
+    end
+end
 
 -- ============================================================================
 -- MoP Classic Data (retail-style uiMapIDs, gated by expansion)
