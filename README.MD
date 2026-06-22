@@ -19,6 +19,8 @@ This addon is designed for WoW Classic.
 * [x] Entrance pins on map
 * [x] Account for Complex maps such as Scarlet Monastery, Ahn'Qiraj, and Dire Maul.
 * [x] Add support for map details on continent/world maps on hover.
+* [x] Season of Discovery: dungeon→raid conversions, flexible raid sizes, Demon Fall Canyon, Scarlet Enclave, Karazhan Crypts, and pin stacking for co-located entrances.
+* [ ] Add SoD incursion world bosses (Tainted Scar, Storm Cliffs, Crystal Vale, Nightmare Grove) — needs a representation for instanced world-boss / multi-portal raids.
 
 # Building from source
 

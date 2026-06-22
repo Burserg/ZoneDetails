@@ -569,7 +569,7 @@ local function GetPinHoverFrame()
     f:SetSize(1, 1)
     f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.text:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
-    f.text:SetJustifyH("CENTER")
+    f.text:SetJustifyH("LEFT")
     f:Hide()
 
     -- Keep the frame anchored just above the cursor while it is shown, and hide
@@ -591,22 +591,14 @@ end
 
 function ZoneDetailsGlobalPinMixin:OnAcquired(myInfo)
     BaseMapPoiPinMixin.OnAcquired(self, myInfo)
-    self.zdType = myInfo.zdType
     self.zdHoverText = myInfo.zdHoverText
 end
 
 function ZoneDetailsGlobalPinMixin:OnMouseEnter()
     if not self.zdHoverText then return end
 
-    -- The hover text rides on the entrance pins, so gate it by the pin toggles.
-    local show
-    if self.zdType == "raid" then
-        show = db.showRaidPins
-    else
-        show = db.showInstancePins
-    end
-    if not show then return end
-
+    -- Pins are rebuilt when the pin toggles change (see RefreshMapText), so a pin only
+    -- exists for currently-enabled content; just show its (possibly multi-line) hover.
     local f = GetPinHoverFrame()
     f.text:SetFont(GetMapFontPath(), db.hoverTextFontSize, "OUTLINE")
     f.text:SetText(self.zdHoverText)
@@ -641,6 +633,9 @@ end
 function ZoneDetails:RefreshMapText()
     if WorldMapFrame:IsShown() then
         ZoneDetailsDataProviderMixin:RefreshAllData()
+        -- Rebuild pins too so pin toggles take effect immediately and clustered pins
+        -- only ever contain currently-enabled content.
+        ZoneDetailsPinDataProviderMixin:RefreshAllData()
     end
 end
 
@@ -914,6 +909,12 @@ end
 -- Map Pin Display
 -- ============================================================================
 
+-- Entrances that sit on (or near) the same spot are merged into a single pin whose
+-- hover lists every dungeon/raid there. Two POIs cluster if they belong to the same
+-- complex (e.g. Scarlet Monastery's wings) or their entrances are within this many
+-- map units (0-100 scale) of each other.
+local PIN_CLUSTER_EPSILON = 3.0
+
 function ZoneDetails:GetPins()
     local mapID = WorldMapFrame:GetMapID()
     local mapInfo = C_Map.GetMapInfo(mapID)
@@ -921,92 +922,115 @@ function ZoneDetails:GetPins()
         return nil
     end
 
-    if not zones[mapID] then
+    local zone = zones[mapID]
+    if not zone then
         return nil
     end
 
-    local myPOIList = {}
-    local count = 0
+    -- Faction colour is zone-wide; compute it once.
+    local fr, fg, fb = self:GetFactionColor(mapID)
 
-    -- Instance pins
+    -- Step 1: collect candidate POIs as { x, y, line, isRaid, group }.
+    local items = {}
+
+    local function addInstance(instance, group)
+        local instData = instances[instance]
+        if not (instData and instData.entrance) then return end
+        local r2, g2, b2 = self:LevelColor(instData.low, instData.high, playerLevel)
+        local instName = type(instance) == "number" and SafeZoneText(instance) or instance
+        items[#items + 1] = {
+            x = instData.entrance[1],
+            y = instData.entrance[2],
+            group = group,
+            isRaid = false,
+            line = ("|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
+                fr * 255, fg * 255, fb * 255, instName,
+                r2 * 255, g2 * 255, b2 * 255, instData.low, instData.high
+            ),
+        }
+    end
+
     if db.showInstancePins then
-        if zones[mapID].instances then
-            for _, instance in ipairs(zones[mapID].instances) do
-                local instData = instances[instance]
-                if instData and instData.entrance then
-                    local r2, g2, b2 = self:LevelColor(instData.low, instData.high, playerLevel)
-                    local r1, g1, b1 = self:GetFactionColor(mapID)
-                    local instName = type(instance) == "number" and SafeZoneText(instance) or instance
-                    local name = ("|cff%02x%02x%02x%s|r"):format(r1 * 255, g1 * 255, b1 * 255, instName)
-                    local description = ("|cff%02x%02x%02x[%d-%d]|r "):format(
-                        r2 * 255, g2 * 255, b2 * 255, instData.low, instData.high
-                    )
-                    count = count + 1
-                    myPOIList[count] = {
-                        position = CreateVector2D(instData.entrance[1] / 100, instData.entrance[2] / 100),
-                        name = name,
-                        description = description,
-                        atlasName = "Dungeon",
-                        zdType = "instance",
-                        zdHoverText = name .. " " .. description,
-                    }
-                end
+        if zone.instances then
+            for _, instance in ipairs(zone.instances) do
+                addInstance(instance, nil)
             end
         end
-
-        if zones[mapID].complexes then
-            for _, complex in ipairs(zones[mapID].complexes) do
+        if zone.complexes then
+            for _, complex in ipairs(zone.complexes) do
                 if complexes[complex] then
                     for _, instance in ipairs(complexes[complex].instances) do
-                        local instData = instances[instance]
-                        if instData and instData.entrance then
-                            local r2, g2, b2 = self:LevelColor(instData.low, instData.high, playerLevel)
-                            local r1, g1, b1 = self:GetFactionColor(mapID)
-                            local instName = type(instance) == "number" and SafeZoneText(instance) or instance
-                            local name = ("|cff%02x%02x%02x%s|r"):format(r1 * 255, g1 * 255, b1 * 255, instName)
-                            local description = ("|cff%02x%02x%02x[%d-%d]|r "):format(
-                                r2 * 255, g2 * 255, b2 * 255, instData.low, instData.high
-                            )
-                            count = count + 1
-                            myPOIList[count] = {
-                                position = CreateVector2D(instData.entrance[1] / 100, instData.entrance[2] / 100),
-                                name = name,
-                                description = description,
-                                atlasName = "Dungeon",
-                                zdType = "instance",
-                                zdHoverText = name .. " " .. description,
-                            }
-                        end
+                        addInstance(instance, "complex:" .. complex)
                     end
                 end
             end
         end
     end
 
-    -- Raid pins
-    if db.showRaidPins and zones[mapID].raids then
-        for _, raid in ipairs(zones[mapID].raids) do
+    if db.showRaidPins and zone.raids then
+        for _, raid in ipairs(zone.raids) do
             local raidData = raids[raid]
             if raidData and raidData.entrance then
                 local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
-                local r1, g1, b1 = self:GetFactionColor(mapID)
-                local name = ("|cff%02x%02x%02x%s|r %s"):format(
-                    r1 * 255, g1 * 255, b1 * 255, (type(raid) == "number" and SafeZoneText(raid) or raid), PlayerCountText(raidData)
-                )
-                local description = ("|cff%02x%02x%02x[%d-%d]|r"):format(
-                    r2 * 255, g2 * 255, b2 * 255, raidData.low, raidData.high
-                )
-                count = count + 1
-                myPOIList[count] = {
-                    position = CreateVector2D(raidData.entrance[1] / 100, raidData.entrance[2] / 100),
-                    name = name,
-                    description = description,
-                    atlasName = "Raid",
-                    zdType = "raid",
-                    zdHoverText = name .. " " .. description,
+                local raidName = type(raid) == "number" and SafeZoneText(raid) or raid
+                items[#items + 1] = {
+                    x = raidData.entrance[1],
+                    y = raidData.entrance[2],
+                    group = nil,
+                    isRaid = true,
+                    line = ("|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r %s"):format(
+                        fr * 255, fg * 255, fb * 255, raidName,
+                        r2 * 255, g2 * 255, b2 * 255, raidData.low, raidData.high, PlayerCountText(raidData)
+                    ),
                 }
             end
         end
+    end
+
+    if #items == 0 then
+        return nil
+    end
+
+    -- Step 2: cluster. Complex members always merge by group; everything else merges
+    -- into the nearest existing cluster within the epsilon, otherwise starts its own.
+    local clusters = {}
+    local byGroup = {}
+    local eps2 = PIN_CLUSTER_EPSILON * PIN_CLUSTER_EPSILON
+
+    for _, it in ipairs(items) do
+        local target
+        if it.group then
+            target = byGroup[it.group]
+        end
+        if not target then
+            for _, cl in ipairs(clusters) do
+                local dx, dy = it.x - cl.x, it.y - cl.y
+                if (dx * dx + dy * dy) <= eps2 then
+                    target = cl
+                    break
+                end
+            end
+        end
+        if not target then
+            target = { x = it.x, y = it.y, lines = {}, hasRaid = false }
+            clusters[#clusters + 1] = target
+            if it.group then byGroup[it.group] = target end
+        end
+        target.lines[#target.lines + 1] = it.line
+        if it.isRaid then target.hasRaid = true end
+    end
+
+    -- Step 3: one pin per cluster, hover lists every member.
+    local myPOIList = {}
+    for i, cl in ipairs(clusters) do
+        local hoverText = table.concat(cl.lines, "\n")
+        myPOIList[i] = {
+            position = CreateVector2D(cl.x / 100, cl.y / 100),
+            name = cl.lines[1],
+            description = "",
+            atlasName = cl.hasRaid and "Raid" or "Dungeon",
+            zdHoverText = hoverText,
+        }
     end
 
     return myPOIList
@@ -2740,6 +2764,46 @@ if isSoD then
     if zones[1423] then
         zones[1423].raids = zones[1423].raids or {}
         table.insert(zones[1423].raids, L["Scarlet Enclave"])
+    end
+
+    -- Register a SoD raid and attach it to a zone's raid list.
+    local function addSoDRaid(zoneID, raidKey, data)
+        raids[raidKey] = data
+        if zones[zoneID] then
+            zones[zoneID].raids = zones[zoneID].raids or {}
+            table.insert(zones[zoneID].raids, raidKey)
+        end
+    end
+
+    -- Dungeons reworked into raids. Keyed by the dungeon's numeric instance mapID so the
+    -- name resolves via GetRealZoneText, and reusing the dungeon's existing entrance so the
+    -- raid pin stacks onto the dungeon pin.
+    addSoDRaid(1440, 48,  { low = 25, high = 25, players = 10, continent = Kalimdor,         entrance = {14, 14} })  -- Blackfathom Deeps (Ashenvale)
+    addSoDRaid(1426, 90,  { low = 40, high = 40, players = 10, continent = Eastern_Kingdoms, entrance = {24, 40} })  -- Gnomeregan (Dun Morogh)
+    addSoDRaid(1435, 109, { low = 50, high = 50, players = 20, continent = Eastern_Kingdoms, entrance = {70, 54} })  -- Sunken Temple (Swamp of Sorrows)
+    -- Upper Blackrock Spire shares Blackrock Spire's door (instance 229) in Burning Steppes.
+    addSoDRaid(1428, L["Upper Blackrock Spire"], { low = 56, high = 60, players = 10, continent = Eastern_Kingdoms, entrance = {28, 38} })
+
+    -- New SoD dungeon: Karazhan Crypts at Morgan's Plot, Deadwind Pass.
+    instances[L["Karazhan Crypts"]] = {
+        low = 60,
+        high = 60,
+        continent = Eastern_Kingdoms,
+        entrance = {39, 68},  -- approximate (NW of Karazhan); verify in-game
+    }
+    if zones[1430] then
+        zones[1430].instances = zones[1430].instances or {}
+        table.insert(zones[1430].instances, L["Karazhan Crypts"])
+    end
+
+    -- Endgame raids are flexible-size on SoD; override the shared entries.
+    for _, id in ipairs({ 409, 249, 469, 533, 531 }) do  -- Molten Core, Onyxia, BWL, Naxxramas, AQ40
+        if raids[id] then raids[id].players = "20-40" end
+    end
+    if raids[509] then raids[509].players = "10-20" end  -- Ruins of Ahn'Qiraj
+    if raids[309] then                                   -- Zul'Gurub (retuned to 58-60)
+        raids[309].players = "10-20"
+        raids[309].low = 58
     end
 end
 

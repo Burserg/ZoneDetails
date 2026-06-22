@@ -72,4 +72,6 @@ L["Dire Maul: North"] = true
 
 L["Demon Fall Canyon"] = true
 L["Scarlet Enclave"] = true
+L["Upper Blackrock Spire"] = true
+L["Karazhan Crypts"] = true
 L["Player"] = true
