@@ -74,4 +74,7 @@ L["Demon Fall Canyon"] = true
 L["Scarlet Enclave"] = true
 L["Upper Blackrock Spire"] = true
 L["Karazhan Crypts"] = true
+L["Old Hillsbrad Foothills"] = true
+L["The Black Morass"] = true
+L["Hyjal Summit"] = true
 L["Player"] = true

@@ -52,6 +52,7 @@ local profs = {
 local tocVersion = select(4, GetBuildInfo())
 local isVanilla = tocVersion < 20000
 local isTBC = tocVersion >= 20000 and tocVersion < 30000
+local isWrath = tocVersion >= 30000 and tocVersion < 40000
 local isMoP = tocVersion >= 50000 and tocVersion < 60000
 
 -- Season of Discovery runs on the Era client, so tocVersion can't distinguish it.
@@ -650,8 +651,15 @@ function ZoneDetails:OnInitialize()
     LibStub("AceConfig-3.0"):RegisterOptionsTable("ZoneDetails", options)
     options.args.profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db)
     self.optionsFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("ZoneDetails", "ZoneDetails")
-    self:RegisterChatCommand("zonedetails", function() InterfaceOptionsFrame_OpenToCategory(self.optionsFrame) end)
-    self:RegisterChatCommand("zd", function() InterfaceOptionsFrame_OpenToCategory(self.optionsFrame) end)
+    local function chatCommand(input)
+        if input and input:lower():match("^%s*validate%s*$") then
+            ZoneDetails:ValidateData()
+        else
+            InterfaceOptionsFrame_OpenToCategory(ZoneDetails.optionsFrame)
+        end
+    end
+    self:RegisterChatCommand("zonedetails", chatCommand)
+    self:RegisterChatCommand("zd", chatCommand)
     self:RegisterEvent("ZONE_CHANGED")
     self:RegisterEvent("PLAYER_LEVEL_CHANGED")
     self:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -663,6 +671,97 @@ end
 
 function ZoneDetails:Refresh()
     db = self.db.profile
+end
+
+-- ============================================================================
+-- Debug / validation
+-- ============================================================================
+
+-- Show text in a window whose contents can be selected and copied (Ctrl+A / Ctrl+C).
+-- The default chat frame can't be copied, so debug output uses this. Built once, reused.
+function ZoneDetails:ShowCopyWindow(title, text)
+    if not self.copyWindow then
+        local frame = AceGUI:Create("Frame")
+        frame:SetLayout("Fill")
+        frame:SetWidth(620)
+        frame:SetHeight(520)
+        frame:SetCallback("OnClose", function(widget) widget:Hide() end)  -- hide, don't release (reused)
+
+        local edit = AceGUI:Create("MultiLineEditBox")
+        edit:SetLabel("")
+        edit:DisableButton(true)
+        edit:SetFullWidth(true)
+        edit:SetFullHeight(true)
+        frame:AddChild(edit)
+
+        self.copyWindow = frame
+        self.copyEdit = edit
+    end
+
+    self.copyWindow:SetTitle(title or "ZoneDetails")
+    self.copyEdit:SetText(text or "")
+    self.copyWindow:Show()
+    if self.copyEdit.editBox then
+        self.copyEdit.editBox:SetFocus()
+        self.copyEdit.editBox:HighlightText()
+    end
+end
+
+-- Dump every loaded instance/raid for the current client into a copyable window so the
+-- data can be validated per expansion/season. Flags numeric keys that don't resolve
+-- (UNRESOLVED) and entries no zone references (ORPHAN).
+function ZoneDetails:ValidateData()
+    -- Keys referenced by some zone (directly or via a complex).
+    local referenced = {}
+    for _, zone in pairs(zones) do
+        if type(zone) == "table" then
+            if zone.instances then for _, k in ipairs(zone.instances) do referenced[k] = true end end
+            if zone.raids then for _, k in ipairs(zone.raids) do referenced[k] = true end end
+            if zone.complexes then
+                for _, c in ipairs(zone.complexes) do
+                    local complex = complexes[c]
+                    if complex and complex.instances then
+                        for _, k in ipairs(complex.instances) do referenced[k] = true end
+                    end
+                end
+            end
+        end
+    end
+
+    local function keySort(a, b)
+        local na, nb = type(a) == "number", type(b) == "number"
+        if na ~= nb then return na end
+        if na then return a < b end
+        return tostring(a) < tostring(b)
+    end
+
+    local lines = {}
+    local function dump(kind, tbl)
+        local keys = {}
+        for k in pairs(tbl) do keys[#keys + 1] = k end
+        table.sort(keys, keySort)
+        for _, key in ipairs(keys) do
+            local data = tbl[key]
+            local name = type(key) == "number" and GetRealZoneText(key) or key
+            local flags = ""
+            if type(key) == "number" and (not name or name == "") then
+                name = "?"
+                flags = flags .. " UNRESOLVED"
+            end
+            if not referenced[key] then flags = flags .. " ORPHAN" end
+            lines[#lines + 1] = ("[%s] %s -> %s [%d-%d]%s"):format(
+                kind, tostring(key), name, data.low or 0, data.high or 0, flags)
+        end
+        return #keys
+    end
+
+    local nInst = dump("inst", instances)
+    local nRaid = dump("raid", raids)
+    local client = isMoP and "MoP" or isWrath and "Wrath" or isTBC and "TBC" or isSoD and "SoD" or "Vanilla"
+    local report = ("ZoneDetails validate — %s (tocVersion %d) — %d instances, %d raids\n\n"):format(
+        client, tocVersion, nInst, nRaid) .. table.concat(lines, "\n")
+
+    self:ShowCopyWindow("ZoneDetails - Validate", report)
 end
 
 -- ============================================================================
@@ -2182,22 +2281,9 @@ instances[552] = {
     entrance = {74.4, 57.7},
 }
 
--- Caverns of Time
--- Old Hillsbrad Foothills
-instances[560] = {
-    low = 66,
-    high = 70,
-    continent = Kalimdor,
-    entrance = {66, 49},
-}
-
--- The Black Morass
-instances[269] = {
-    low = 69,
-    high = 70,
-    continent = Kalimdor,
-    entrance = {66, 49},
-}
+-- Caverns of Time (Old Hillsbrad Foothills, The Black Morass) + Hyjal Summit are
+-- defined string-keyed in the gated block after the MoP data (TBC/Wrath/MoP only),
+-- so GetRealZoneText's campaign names don't show and they never leak onto Era/SoD.
 
 -- Magisters' Terrace (TBC Phase 5)
 instances[585] = {
@@ -2327,14 +2413,7 @@ raids[550] = {
     entrance = {73.7, 63.7},
 }
 
--- Hyjal Summit (Mount Hyjal)
-raids[534] = {
-    low = 70,
-    high = 70,
-    players = 25,
-    continent = Kalimdor,
-    entrance = {66, 49},
-}
+-- Hyjal Summit is defined in the gated Caverns-of-Time block after the MoP data.
 
 -- Black Temple
 raids[564] = {
@@ -2426,10 +2505,7 @@ complexes[429] = {
     },
 }
 
--- Caverns of Time
-complexes[2367] = {
-    instances = {560, 269},
-}
+-- Caverns of Time (complexes[2367]) is defined in the gated block after the MoP data.
 
 -- Auchindoun
 complexes[3790] = {
@@ -4608,3 +4684,28 @@ nodes["Rich Kyparite Deposit"] = {
 }
 
 end -- if isMoP
+
+-- ============================================================================
+-- Caverns of Time (TBC / Wrath / MoP only)
+-- ============================================================================
+-- String-keyed so the display names are the zone names (GetRealZoneText returns the
+-- campaign names "The Escape From Durnholde" / "The Opening of the Dark Portal" for
+-- these instanceIDs). Gated so they never leak onto Classic Era / Season of Discovery
+-- (string keys bypass the GetRealZoneText presence filter). Placed after the MoP block
+-- so both Tanaris zones (1446 pre-MoP, 71 on MoP) exist. Both already reference complex
+-- 2367 statically; on Era complexes[2367] is left undefined, which the render loops skip.
+if isTBC or isWrath or isMoP then
+    instances[L["Old Hillsbrad Foothills"]] = { low = 66, high = 70, continent = Kalimdor, entrance = {66, 49} }
+    instances[L["The Black Morass"]]        = { low = 69, high = 70, continent = Kalimdor, entrance = {66, 49} }
+    raids[L["Hyjal Summit"]]                = { low = 70, high = 70, players = 25, continent = Kalimdor, entrance = {66, 49} }
+    complexes[2367] = { instances = { L["Old Hillsbrad Foothills"], L["The Black Morass"] } }
+
+    -- Hyjal Summit shares the Caverns of Time entrance; attach it to whichever Tanaris
+    -- zone the running client uses.
+    for _, tanaris in ipairs({ 1446, 71 }) do
+        if zones[tanaris] then
+            zones[tanaris].raids = zones[tanaris].raids or {}
+            table.insert(zones[tanaris].raids, L["Hyjal Summit"])
+        end
+    end
+end
