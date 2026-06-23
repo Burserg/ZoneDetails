@@ -703,6 +703,27 @@ local function SafeZoneText(id)
     return GetRealZoneText(id) or tostring(id)
 end
 
+-- Resolve an instance/raid key to a display name, or nil if it isn't present on the
+-- running client. Numeric keys are client mapIDs; if GetRealZoneText can't resolve
+-- one, that instance/raid doesn't exist on this client (e.g. a TBC instance on a
+-- Classic Era / SoD client) and the caller skips it instead of showing a nameless
+-- entry. String keys are intentional custom content and are always kept.
+-- Successful resolutions are cached so a valid instance that briefly fails to resolve
+-- (GetRealZoneText can return nil just after login/reload) doesn't flicker out; a
+-- wrong-expansion key never resolves on this client, so it is never cached.
+local resolvedInstanceNames = {}
+local function ResolveInstanceName(key)
+    if type(key) ~= "number" then return key end
+    local cached = resolvedInstanceNames[key]
+    if cached then return cached end
+    local name = GetRealZoneText(key)
+    if name and name ~= "" then
+        resolvedInstanceNames[key] = name
+        return name
+    end
+    return nil
+end
+
 -- Player-count label shared by raids and battlegrounds, e.g. "40 Player" or, for a
 -- flexible raid, "20-40 Player".
 local function PlayerCountText(data)
@@ -716,82 +737,77 @@ function ZoneDetails:GetInstanceDetails(mapID)
     if mapInfo.mapType ~= WORLDMAP_ZONE then return nil end
     if not zones[mapID] then return nil end
 
+    local zone = zones[mapID]
+    local fr, fg, fb = self:GetFactionColor(mapID)
     local text = ""
 
-    -- The static block lists every instance/raid in the zone. Hovering an
-    -- instance/raid map icon additionally pops its details up above the cursor
-    -- (see the pin hover handlers above).
+    -- Instances (plain + complex sub-instances) share one header. Each numeric entry
+    -- is skipped if it doesn't exist on this client (ResolveInstanceName), so e.g. TBC
+    -- instances don't show up nameless on a Classic Era / SoD client. Hovering an
+    -- entrance pin additionally pops the details up above the cursor (see pin handlers).
+    local function addInstanceLine(instance, lines)
+        local instData = instances[instance]
+        if not instData then return end
+        local instName = ResolveInstanceName(instance)
+        if not instName then return end
+        local r2, g2, b2 = self:LevelColor(instData.low, instData.high, playerLevel)
+        lines[#lines + 1] = ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
+            fr * 255, fg * 255, fb * 255, instName,
+            r2 * 255, g2 * 255, b2 * 255, instData.low, instData.high
+        )
+    end
+
     if db.showInstances then
-        if zones[mapID].instances then
-            text = text .. ("\n|cffffff00%s:|r"):format(L["Instances"])
-            for _, instance in ipairs(zones[mapID].instances) do
-                local instData = instances[instance]
-                if instData then
-                    local r2, g2, b2 = self:LevelColor(instData.low, instData.high, playerLevel)
-                    local r1, g1, b1 = self:GetFactionColor(mapID)
-                    local instName = type(instance) == "number" and SafeZoneText(instance) or instance
-                    text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
-                        r1 * 255, g1 * 255, b1 * 255, instName,
-                        r2 * 255, g2 * 255, b2 * 255,
-                        instData.low, instData.high
+        local lines = {}
+        if zone.instances then
+            for _, instance in ipairs(zone.instances) do addInstanceLine(instance, lines) end
+        end
+        if zone.complexes then
+            for _, complex in ipairs(zone.complexes) do
+                if complexes[complex] then
+                    for _, instance in ipairs(complexes[complex].instances) do addInstanceLine(instance, lines) end
+                end
+            end
+        end
+        if #lines > 0 then
+            text = text .. ("\n|cffffff00%s:|r"):format(L["Instances"]) .. table.concat(lines)
+        end
+    end
+
+    if db.showBattlegrounds and zone.battlegrounds then
+        local lines = {}
+        for _, battleground in ipairs(zone.battlegrounds) do
+            local bgData = battlegrounds[battleground]
+            if bgData then
+                local r2, g2, b2 = self:LevelColor(bgData.low, bgData.high, playerLevel)
+                lines[#lines + 1] = ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r   %s"):format(
+                    fr * 255, fg * 255, fb * 255, SafeZoneText(battleground),
+                    r2 * 255, g2 * 255, b2 * 255, bgData.low, bgData.high, PlayerCountText(bgData)
+                )
+            end
+        end
+        if #lines > 0 then
+            text = text .. ("\n|cffffff00%s:|r"):format(L["Battlegrounds"]) .. table.concat(lines)
+        end
+    end
+
+    if db.showRaids and zone.raids then
+        local lines = {}
+        for _, raid in ipairs(zone.raids) do
+            local raidData = raids[raid]
+            if raidData then
+                local raidName = ResolveInstanceName(raid)
+                if raidName then
+                    local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
+                    lines[#lines + 1] = ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d]|r   %s"):format(
+                        fr * 255, fg * 255, fb * 255, raidName,
+                        r2 * 255, g2 * 255, b2 * 255, raidData.high, PlayerCountText(raidData)
                     )
                 end
             end
         end
-
-        if zones[mapID].complexes then
-            text = text .. ("\n|cffffff00%s:|r"):format(L["Instances"])
-            for _, complex in ipairs(zones[mapID].complexes) do
-                if complexes[complex] then
-                    for _, instance in ipairs(complexes[complex].instances) do
-                        local instData = instances[instance]
-                        if instData then
-                            local r2, g2, b2 = self:LevelColor(instData.low, instData.high, playerLevel)
-                            local r1, g1, b1 = self:GetFactionColor(mapID)
-                            local instName = type(instance) == "number" and SafeZoneText(instance) or instance
-                            text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
-                                r1 * 255, g1 * 255, b1 * 255, instName,
-                                r2 * 255, g2 * 255, b2 * 255,
-                                instData.low, instData.high
-                            )
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    if db.showBattlegrounds and zones[mapID].battlegrounds then
-        text = text .. ("\n|cffffff00%s:|r"):format(L["Battlegrounds"])
-        for _, battleground in ipairs(zones[mapID].battlegrounds) do
-            local bgData = battlegrounds[battleground]
-            if bgData then
-                local r2, g2, b2 = self:LevelColor(bgData.low, bgData.high, playerLevel)
-                local r1, g1, b1 = self:GetFactionColor(mapID)
-                text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r   %s"):format(
-                    r1 * 255, g1 * 255, b1 * 255, SafeZoneText(battleground),
-                    r2 * 255, g2 * 255, b2 * 255,
-                    bgData.low, bgData.high,
-                    PlayerCountText(bgData)
-                )
-            end
-        end
-    end
-
-    if db.showRaids and zones[mapID].raids then
-        text = text .. ("\n|cffffff00%s:|r"):format(L["Raids"])
-        for _, raid in ipairs(zones[mapID].raids) do
-            local raidData = raids[raid]
-            if raidData then
-                local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
-                local r1, g1, b1 = self:GetFactionColor(mapID)
-                text = text .. ("\n|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d]|r   %s"):format(
-                    r1 * 255, g1 * 255, b1 * 255, (type(raid) == "number" and SafeZoneText(raid) or raid),
-                    r2 * 255, g2 * 255, b2 * 255,
-                    raidData.high,
-                    PlayerCountText(raidData)
-                )
-            end
+        if #lines > 0 then
+            text = text .. ("\n|cffffff00%s:|r"):format(L["Raids"]) .. table.concat(lines)
         end
     end
 
@@ -936,8 +952,9 @@ function ZoneDetails:GetPins()
     local function addInstance(instance, group)
         local instData = instances[instance]
         if not (instData and instData.entrance) then return end
+        local instName = ResolveInstanceName(instance)
+        if not instName then return end  -- not present on this client; skip
         local r2, g2, b2 = self:LevelColor(instData.low, instData.high, playerLevel)
-        local instName = type(instance) == "number" and SafeZoneText(instance) or instance
         items[#items + 1] = {
             x = instData.entrance[1],
             y = instData.entrance[2],
@@ -970,9 +987,9 @@ function ZoneDetails:GetPins()
     if db.showRaidPins and zone.raids then
         for _, raid in ipairs(zone.raids) do
             local raidData = raids[raid]
-            if raidData and raidData.entrance then
+            local raidName = raidData and raidData.entrance and ResolveInstanceName(raid)
+            if raidName then
                 local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
-                local raidName = type(raid) == "number" and SafeZoneText(raid) or raid
                 items[#items + 1] = {
                     x = raidData.entrance[1],
                     y = raidData.entrance[2],
