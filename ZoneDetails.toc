@@ -1,7 +1,7 @@
 ## Interface: 20504
 ## Title: ZoneDetails
 ## Author: Burserg
-## Version: 2.1.5
+## Version: 2.1.6
 ## Notes: Zone details overlay for the World Map
 ## OptionalDeps: LibStub, CallbackHandler-1.0
 ## SavedVariables: ZoneDetailsDB

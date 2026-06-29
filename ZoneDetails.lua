@@ -53,6 +53,7 @@ local tocVersion = select(4, GetBuildInfo())
 local isVanilla = tocVersion < 20000
 local isTBC = tocVersion >= 20000 and tocVersion < 30000
 local isWrath = tocVersion >= 30000 and tocVersion < 40000
+local isCata = tocVersion >= 40000 and tocVersion < 50000
 local isMoP = tocVersion >= 50000 and tocVersion < 60000
 
 -- Season of Discovery runs on the Era client, so tocVersion can't distinguish it.
@@ -593,6 +594,11 @@ end
 function ZoneDetailsGlobalPinMixin:OnAcquired(myInfo)
     BaseMapPoiPinMixin.OnAcquired(self, myInfo)
     self.zdHoverText = myInfo.zdHoverText
+    -- On old-world maps Blizzard draws its own dungeon/raid entrance markers at the
+    -- same MEDIUM strata + PIN_FRAME_LEVEL_DUNGEON_ENTRANCE level, which hide our icon
+    -- (the frame still wins the mouse, so hover works but nothing is visible). HIGH
+    -- strata draws our pin above that regardless of pin pool or frame level.
+    self:SetFrameStrata("HIGH")
 end
 
 function ZoneDetailsGlobalPinMixin:OnMouseEnter()
@@ -921,8 +927,8 @@ end
 function ZoneDetails:GetProfessions()
     local professions = {}
 
-    if isMoP then
-        -- MoP Classic uses the retail-style profession API
+    if isMoP or isCata then
+        -- MoP/Cata Classic use the retail-style profession API
         local prof1, prof2, archaeology, fishing, cooking = GetProfessions()
         local profIDs = {prof1, prof2, archaeology, fishing, cooking}
         for _, profID in pairs(profIDs) do
@@ -1053,10 +1059,14 @@ function ZoneDetails:GetPins()
         if not (instData and instData.entrance) then return end
         local instName = ResolveInstanceName(instance)
         if not instName then return end  -- not present on this client; skip
+        -- A zone may override an instance's pin position on its own map -- used when an
+        -- entrance physically sits in a sub-zone with its own coordinate system (the
+        -- base instances[].entrance serves the zone the entrance is keyed to).
+        local ov = zone.instanceCoords and zone.instanceCoords[instance]
         local r2, g2, b2 = self:LevelColor(instData.low, instData.high, playerLevel)
         items[#items + 1] = {
-            x = instData.entrance[1],
-            y = instData.entrance[2],
+            x = (ov and ov[1]) or instData.entrance[1],
+            y = (ov and ov[2]) or instData.entrance[2],
             group = group,
             isRaid = false,
             line = ("|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r"):format(
@@ -2318,6 +2328,14 @@ raids[249] = {
     continent = Kalimdor,
     entrance = {52, 76},
 }
+-- WotLK patch 3.2.2 reissued Onyxia's Lair as a level-80 10/25 raid (persists through
+-- Cataclysm and MoP). Pre-Wrath clients keep the original level-60 40-player version;
+-- SoD applies its own flexible tuning above.
+if isWrath or isCata or isMoP then
+    raids[249].low = 80
+    raids[249].high = 80
+    raids[249].players = "10/25"
+end
 
 -- Blackwing Lair
 raids[469] = {
@@ -2901,10 +2919,12 @@ if isSoD then
 end
 
 -- ============================================================================
--- MoP Classic Data (retail-style uiMapIDs, gated by expansion)
+-- Cataclysm+ Data (retail-style uiMapIDs, gated by expansion)
+-- The post-Cataclysm revamped old world, Cata zones, and (where present on the
+-- running client) MoP content. Pre-Cata clients use the base combined zones above.
 -- ============================================================================
 
-if isMoP then
+if isMoP or isCata then
 
 -- ============================================================================
 -- MoP: Azeroth/Outland Zones (retail uiMapIDs)
@@ -3063,13 +3083,32 @@ zones[10] = {
     low = 10,
     high = 33,
     continent = Kalimdor,
-    instances = {43, 47, 129},
+    instances = {43},
     battlegrounds = {489},
     faction = "Horde",
     fishing_min = 20,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood"},
     nodes = {"Copper Vein", "Tin Vein", "Silver Vein"},
 }
+
+-- Southern Barrens (Cataclysm split from The Barrens; holds Razorfen Kraul/Downs)
+zones[199] = {
+    low = 30,
+    high = 35,
+    continent = Kalimdor,
+    instances = {47, 129},
+    faction = "Contested",
+    fishing_min = 20,
+    herbs = {"Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Kingsblood", "Liferoot"},
+    nodes = {"Copper Vein", "Tin Vein", "Silver Vein", "Iron Deposit"},
+}
+
+-- Cata+ map positions for the Barrens-split dungeons. The base instances[] entries
+-- hold the pre-Cataclysm combined-Barrens coordinates (used by Vanilla/TBC/Wrath);
+-- on the split maps these entrances sit at different positions.
+instances[43].entrance = {38.9, 69.2}   -- Wailing Caverns on Northern Barrens (10)
+instances[47].entrance = {40.8, 94.5}   -- Razorfen Kraul on Southern Barrens (199)
+instances[129].entrance = {42.7, 94.5}  -- Razorfen Downs on Southern Barrens (199)
 
 -- Ghostlands
 zones[95] = {
@@ -3152,6 +3191,20 @@ zones[50] = {
     nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"},
 }
 
+-- Stranglethorn Vale (overview map over Northern Stranglethorn / Cape of Stranglethorn;
+-- shows the Zul'Gurub entrance at its overview-relative position)
+zones[224] = {
+    low = 30,
+    high = 50,
+    continent = Eastern_Kingdoms,
+    instances = {859},
+    instanceCoords = { [859] = {61.9, 22.2} },
+    faction = "Contested",
+    fishing_min = 130,
+    herbs = {"Stranglekelp", "Wild Steelbloom", "Kingsblood", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Purple Lotus"},
+    nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit"},
+}
+
 -- Swamp of Sorrows
 zones[51] = {
     low = 36,
@@ -3224,7 +3277,7 @@ zones[36] = {
     high = 59,
     continent = Eastern_Kingdoms,
     instances = {230, 229},
-    raids = {409, 469},
+    raids = {409, 469, 669},
     faction = "Contested",
     fishing_min = 330,
     herbs = {"Sungrass", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Black Lotus"},
@@ -3645,8 +3698,22 @@ zones[198] = {
     nodes = {"Obsidium Deposit", "Rich Obsidium Deposit"},
 }
 
--- Vashj'ir
+-- Vashj'ir (overview map; Throne of the Tides' portal is in the Abyssal Depths
+-- sub-zone, so its pin needs an overview-relative position override here)
 zones[203] = {
+    low = 80,
+    high = 82,
+    continent = Eastern_Kingdoms,
+    instances = {643},
+    instanceCoords = { [643] = {49.3, 43.1} },
+    faction = "Contested",
+    fishing_min = 480,
+    herbs = {"Azshara's Veil", "Stormvine"},
+    nodes = {"Obsidium Deposit", "Rich Obsidium Deposit"},
+}
+
+-- Abyssal Depths (Vashj'ir sub-zone; holds the Throne of the Tides entrance)
+zones[204] = {
     low = 80,
     high = 82,
     continent = Eastern_Kingdoms,
@@ -3687,7 +3754,7 @@ zones[241] = {
     high = 85,
     continent = Eastern_Kingdoms,
     instances = {670, 645},
-    raids = {669, 671},
+    raids = {671},
     faction = "Contested",
     fishing_min = 530,
     herbs = {"Twilight Jasmine", "Cinderbloom", "Heartblossom"},
@@ -3855,7 +3922,7 @@ zones[379] = {
     low = 87,
     high = 88,
     continent = Pandaria,
-    instances = {959, 994},
+    instances = {959},
     raids = {1008},
     faction = "Contested",
     fishing_min = 750,
@@ -3880,6 +3947,7 @@ zones[422] = {
     low = 89,
     high = 90,
     continent = Pandaria,
+    instances = {962},
     raids = {1009},
     faction = "Contested",
     fishing_min = 825,
@@ -3892,7 +3960,7 @@ zones[390] = {
     low = 90,
     high = 90,
     continent = Pandaria,
-    instances = {994, 962},
+    instances = {994},
     raids = {1136},
     faction = "Contested",
     fishing_min = 825,
@@ -4155,7 +4223,7 @@ instances[643] = {
     low = 80,
     high = 85,
     continent = Eastern_Kingdoms,
-    entrance = {69.3, 25.0},
+    entrance = {69.4, 25.4},  -- on the Abyssal Depths (204) map, where the portal is
 }
 
 -- The Stonecore
@@ -4211,7 +4279,7 @@ instances[859] = {
     low = 85,
     high = 85,
     continent = Eastern_Kingdoms,
-    entrance = {72.0, 33.0},
+    entrance = {68.4, 32.9},
 }
 
 -- End Time
@@ -4246,7 +4314,7 @@ instances[940] = {
 raids[533] = {
     low = 80,
     high = 80,
-    players = 10,
+    players = "10/25",
     continent = Northrend,
     entrance = {87.3, 51.0},
 }
@@ -4255,7 +4323,7 @@ raids[533] = {
 raids[615] = {
     low = 80,
     high = 80,
-    players = 10,
+    players = "10/25",
     continent = Northrend,
     entrance = {60.0, 57.0},
 }
@@ -4264,7 +4332,7 @@ raids[615] = {
 raids[616] = {
     low = 80,
     high = 80,
-    players = 10,
+    players = "10/25",
     continent = Northrend,
     entrance = {27.5, 26.0},
 }
@@ -4273,7 +4341,7 @@ raids[616] = {
 raids[603] = {
     low = 80,
     high = 80,
-    players = 10,
+    players = "10/25",
     continent = Northrend,
     entrance = {41.6, 17.8},
 }
@@ -4282,7 +4350,7 @@ raids[603] = {
 raids[649] = {
     low = 80,
     high = 80,
-    players = 10,
+    players = "10/25",
     continent = Northrend,
     entrance = {75.1, 21.8},
 }
@@ -4291,7 +4359,7 @@ raids[649] = {
 raids[624] = {
     low = 80,
     high = 80,
-    players = 10,
+    players = "10/25",
     continent = Northrend,
     entrance = {50.0, 11.4},
 }
@@ -4300,7 +4368,7 @@ raids[624] = {
 raids[631] = {
     low = 80,
     high = 80,
-    players = 10,
+    players = "10/25",
     continent = Northrend,
     entrance = {53.9, 87.3},
 }
@@ -4309,7 +4377,7 @@ raids[631] = {
 raids[724] = {
     low = 80,
     high = 80,
-    players = 10,
+    players = "10/25",
     continent = Northrend,
     entrance = {60.0, 57.0},
 }
@@ -4322,16 +4390,16 @@ raids[724] = {
 raids[669] = {
     low = 85,
     high = 85,
-    players = 10,
+    players = "10/25",
     continent = Eastern_Kingdoms,
-    entrance = {23.4, 26.4},
+    entrance = {29.0, 35.0},
 }
 
 -- The Bastion of Twilight
 raids[671] = {
     low = 85,
     high = 85,
-    players = 10,
+    players = "10/25",
     continent = Eastern_Kingdoms,
     entrance = {33.8, 78.2},
 }
@@ -4340,7 +4408,7 @@ raids[671] = {
 raids[754] = {
     low = 85,
     high = 85,
-    players = 10,
+    players = "10/25",
     continent = Kalimdor,
     entrance = {38.4, 80.6},
 }
@@ -4349,7 +4417,7 @@ raids[754] = {
 raids[720] = {
     low = 85,
     high = 85,
-    players = 10,
+    players = "10/25",
     continent = Kalimdor,
     entrance = {47.3, 78.3},
 }
@@ -4358,7 +4426,7 @@ raids[720] = {
 raids[967] = {
     low = 85,
     high = 85,
-    players = 10,
+    players = "10/25",
     continent = Kalimdor,
     entrance = {66.0, 49.0},
 }
@@ -4367,7 +4435,7 @@ raids[967] = {
 raids[757] = {
     low = 85,
     high = 85,
-    players = 10,
+    players = "10/25",
     continent = Eastern_Kingdoms,
     entrance = {46.3, 47.5},
 }
@@ -4420,7 +4488,7 @@ battlegrounds[761] = {
 raids[1008] = {
     low = 90,
     high = 90,
-    players = 10,
+    players = "10/25",
     continent = Pandaria,
     entrance = {59.6, 39.2},
 }
@@ -4429,7 +4497,7 @@ raids[1008] = {
 raids[1009] = {
     low = 90,
     high = 90,
-    players = 10,
+    players = "10/25",
     continent = Pandaria,
     entrance = {39.0, 35.0},
 }
@@ -4438,7 +4506,7 @@ raids[1009] = {
 raids[996] = {
     low = 90,
     high = 90,
-    players = 10,
+    players = "10/25",
     continent = Pandaria,
     entrance = {47.9, 61.3},
 }
@@ -4447,7 +4515,7 @@ raids[996] = {
 raids[1098] = {
     low = 90,
     high = 90,
-    players = 10,
+    players = "10/25",
     continent = Pandaria,
     entrance = {63.5, 32.2},
 }
@@ -4456,7 +4524,7 @@ raids[1098] = {
 raids[1136] = {
     low = 90,
     high = 90,
-    players = 10,
+    players = "10/25",
     continent = Pandaria,
     entrance = {74.0, 42.2},
 }
@@ -4685,7 +4753,7 @@ nodes["Rich Kyparite Deposit"] = {
     high = 600,
 }
 
-end -- if isMoP
+end -- if isMoP or isCata
 
 -- ============================================================================
 -- Caverns of Time (TBC / Wrath / MoP only)
