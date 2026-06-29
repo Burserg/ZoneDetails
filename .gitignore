@@ -48,3 +48,6 @@ Libs/
 # Ignore .Identifer files
 *.Identifier
 
+# Claude Code project config (never ship to addon users)
+.claude/
+
