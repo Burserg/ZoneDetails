@@ -2200,7 +2200,7 @@ instances[540] = {
 
 -- Coilfang Reservoir
 -- The Slave Pens
-instances[546] = {
+instances[547] = {
     low = 61,
     high = 69,
     continent = Outland,
@@ -2208,7 +2208,7 @@ instances[546] = {
 }
 
 -- The Underbog
-instances[545] = {
+instances[546] = {
     low = 62,
     high = 70,
     continent = Outland,
@@ -2216,7 +2216,7 @@ instances[545] = {
 }
 
 -- The Steamvault
-instances[547] = {
+instances[545] = {
     low = 69,
     high = 70,
     continent = Outland,
@@ -3028,7 +3028,7 @@ zones[18] = {
     low = 1,
     high = 12,
     continent = Eastern_Kingdoms,
-    complexes = {189},
+    instances = {1001, 1004},
     faction = "Horde",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
@@ -3145,6 +3145,7 @@ zones[50] = {
     low = 30,
     high = 50,
     continent = Eastern_Kingdoms,
+    instances = {859},
     faction = "Contested",
     fishing_min = 130,
     herbs = {"Stranglekelp", "Wild Steelbloom", "Kingsblood", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Purple Lotus"},
@@ -3190,7 +3191,7 @@ zones[22] = {
     low = 43,
     high = 57,
     continent = Eastern_Kingdoms,
-    instances = {289},
+    instances = {1007},
     faction = "Contested",
     fishing_min = 205,
     herbs = {"Arthas' Tears", "Sungrass", "Dreamfoil", "Mountain Silversage", "Plaguebloom"},
@@ -3246,7 +3247,6 @@ zones[23] = {
     high = 59,
     continent = Eastern_Kingdoms,
     instances = {329},
-    raids = {533},
     faction = "Contested",
     fishing_min = 330,
     herbs = {"Arthas' Tears", "Sungrass", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Plaguebloom", "Black Lotus"},
@@ -3329,6 +3329,7 @@ zones[71] = {
     continent = Kalimdor,
     instances = {209},
     complexes = {2367},
+    raids = {967},
     faction = "Contested",
     fishing_min = 205,
     herbs = {"Stranglekelp", "Firebloom", "Purple Lotus"},
@@ -3527,8 +3528,8 @@ zones[115] = {
     low = 71,
     high = 75,
     continent = Northrend,
-    instances = {600},
-    raids = {533, 615},
+    instances = {601, 619},
+    raids = {533, 615, 724},
     faction = "Contested",
     fishing_min = 405,
     herbs = {"Goldclover", "Tiger Lily", "Talandra's Rose"},
@@ -3540,7 +3541,6 @@ zones[116] = {
     low = 73,
     high = 75,
     continent = Northrend,
-    instances = {600},
     faction = "Contested",
     fishing_min = 405,
     herbs = {"Goldclover", "Tiger Lily", "Talandra's Rose"},
@@ -3552,7 +3552,7 @@ zones[121] = {
     low = 74,
     high = 77,
     continent = Northrend,
-    instances = {604, 601, 619},
+    instances = {600, 604},
     faction = "Contested",
     fishing_min = 430,
     herbs = {"Goldclover", "Tiger Lily", "Talandra's Rose", "Adder's Tongue"},
@@ -3575,6 +3575,7 @@ zones[120] = {
     low = 77,
     high = 80,
     continent = Northrend,
+    instances = {599, 602},
     raids = {603},
     faction = "Contested",
     fishing_min = 455,
@@ -3673,6 +3674,7 @@ zones[249] = {
     high = 84,
     continent = Kalimdor,
     instances = {755, 644, 657},
+    raids = {754},
     faction = "Contested",
     fishing_min = 530,
     herbs = {"Whiptail", "Cinderbloom"},
@@ -4100,7 +4102,7 @@ instances[575] = {
 instances[595] = {
     low = 79,
     high = 80,
-    continent = Northrend,
+    continent = Kalimdor,
     entrance = {66.0, 49.0},
 }
 
@@ -4698,7 +4700,7 @@ if isTBC or isWrath or isMoP then
     instances[L["Old Hillsbrad Foothills"]] = { low = 66, high = 70, continent = Kalimdor, entrance = {66, 49} }
     instances[L["The Black Morass"]]        = { low = 69, high = 70, continent = Kalimdor, entrance = {66, 49} }
     raids[L["Hyjal Summit"]]                = { low = 70, high = 70, players = 25, continent = Kalimdor, entrance = {66, 49} }
-    complexes[2367] = { instances = { L["Old Hillsbrad Foothills"], L["The Black Morass"] } }
+    complexes[2367] = { instances = { L["Old Hillsbrad Foothills"], L["The Black Morass"], 595, 938, 939, 940 } }
 
     -- Hyjal Summit shares the Caverns of Time entrance; attach it to whichever Tanaris
     -- zone the running client uses.
