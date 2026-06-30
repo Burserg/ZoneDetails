@@ -104,7 +104,7 @@ local defaults = {
         instanceTextFontSize = 32,
 
         -- On-Hover (pin) Text Options
-        hoverTextFontSize = 32,
+        hoverTextFontSize = 16,
 
         -- Profession Text Map Options
         profTextFontSize = 32,
@@ -594,11 +594,11 @@ end
 function ZoneDetailsGlobalPinMixin:OnAcquired(myInfo)
     BaseMapPoiPinMixin.OnAcquired(self, myInfo)
     self.zdHoverText = myInfo.zdHoverText
-    -- On old-world maps Blizzard draws its own dungeon/raid entrance markers at the
-    -- same MEDIUM strata + PIN_FRAME_LEVEL_DUNGEON_ENTRANCE level, which hide our icon
-    -- (the frame still wins the mouse, so hover works but nothing is visible). HIGH
-    -- strata draws our pin above that regardless of pin pool or frame level.
-    self:SetFrameStrata("HIGH")
+    -- Draw above Blizzard's native entrance markers (same MEDIUM strata). Use
+    -- FULLSCREEN_DIALOG so the pins also clear the maximized world map, which sits at a
+    -- higher strata than the windowed map (plain HIGH stayed behind it). This matches the
+    -- zone-name overlay's strata, which already renders correctly in both map modes.
+    self:SetFrameStrata("FULLSCREEN_DIALOG")
 end
 
 function ZoneDetailsGlobalPinMixin:OnMouseEnter()
@@ -633,6 +633,28 @@ end
 function ZoneDetails:OnEnable()
     WorldMapFrame:AddDataProvider(ZoneDetailsDataProviderMixin)
     WorldMapFrame:AddDataProvider(ZoneDetailsPinDataProviderMixin)
+    -- Maximizing/minimizing the map resizes the canvas without firing a zone change, so
+    -- the pins keep their old layout until you navigate. Re-acquire them on the mode
+    -- switch so they re-render immediately for the new canvas size.
+    for _, method in ipairs({ "Maximize", "Minimize" }) do
+        if type(WorldMapFrame[method]) == "function" then
+            hooksecurefunc(WorldMapFrame, method, function()
+                if WorldMapFrame:IsShown() then
+                    ZoneDetailsPinDataProviderMixin:RefreshAllData()
+                end
+            end)
+        end
+    end
+    -- The map's own refresh can run before the canvas finishes sizing (notably when it
+    -- opens already maximized), leaving pins stale until a zone change. Re-acquire on the
+    -- next frame after the map shows, once the canvas has settled.
+    WorldMapFrame:HookScript("OnShow", function()
+        C_Timer.After(0, function()
+            if WorldMapFrame:IsShown() then
+                ZoneDetailsPinDataProviderMixin:RefreshAllData()
+            end
+        end)
+    end)
 end
 
 -- Force an immediate re-render of the overlay text (used for live option
