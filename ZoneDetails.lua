@@ -3,7 +3,7 @@
 -- Credit to ckknight for originally writing Cartographer_ZoneDetails
 -- Credit to phyber for writing Cromulent
 --]]
-ZoneDetails = LibStub("AceAddon-3.0"):NewAddon("ZoneDetails", "AceConsole-3.0", "AceEvent-3.0", "AceHook-3.0")
+ZoneDetails = LibStub("AceAddon-3.0"):NewAddon("ZoneDetails", "AceConsole-3.0", "AceEvent-3.0")
 ZoneDetailsGlobalPinMixin = BaseMapPoiPinMixin:CreateSubPin("PIN_FRAME_LEVEL_DUNGEON_ENTRANCE")
 
 local L = LibStub("AceLocale-3.0"):GetLocale("ZoneDetails")
@@ -33,20 +33,12 @@ local complexes = {}
 local nodes = {}
 local herbs = {}
 
+-- Only the professions the map overlay actually displays (see GetProfessionDetails);
+-- GetProfessions matches player skills against this list.
 local profs = {
-    L["Leatherworking"],
-    L["Tailoring"],
-    L["Alchemy"],
-    L["Engineering"],
-    L["Blacksmithing"],
-    L["Enchanting"],
-    L["Cooking"],
-    L["First Aid"],
     L["Mining"],
-    L["Skinning"],
     L["Herbalism"],
     L["Fishing"],
-    L["Jewelcrafting"],
 }
 
 local tocVersion = select(4, GetBuildInfo())
@@ -66,15 +58,6 @@ local isSoD = isVanilla and C_Seasons and C_Seasons.GetActiveSeason
 
 local MAX_LEVEL = isMoP and 90 or (isTBC and 70 or 60)
 
-local Azeroth = "Azeroth"
-local Kalimdor = "Kalimdor"
-local Eastern_Kingdoms = "Eastern Kingdoms"
-local Outland = "Outland"
-local Pandaria = "Pandaria"
-
-local WORLDMAP_OUTLAND_ID = isMoP and 101 or 1945
-local WORLDMAP_PANDARIA_ID = 424
-
 local defaults = {
     profile = {
         -- General Options
@@ -85,7 +68,6 @@ local defaults = {
         showHerbs = true,
         showMineNodes = true,
         showFishing = true,
-        showSkinning = false,
 
         -- Instance/Raid/BG Map Options
         showInstances = true,
@@ -98,7 +80,6 @@ local defaults = {
 
         -- Zone Text Map Options
         zoneTextFontSize = 32,
-        zoneTextLocation = "TOP",
 
         -- Instance Text Map Options
         instanceTextFontSize = 32,
@@ -108,7 +89,6 @@ local defaults = {
 
         -- Profession Text Map Options
         profTextFontSize = 32,
-        profTextLocation = "BOTTOMLEFT",
     }
 }
 
@@ -307,11 +287,6 @@ local options = {
     }
 }
 
--- Debug helper
-local function dbg(msg)
-    DEFAULT_CHAT_FRAME:AddMessage(msg)
-end
-
 -- ============================================================================
 -- Map Data Provider Mixins
 -- ============================================================================
@@ -382,6 +357,10 @@ local function StripColors(s)
     return (s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
 end
 
+-- Map names are static for a session; caching them (successful lookups only) avoids
+-- a C_Map.GetMapInfo call per frame in the area-label hook below.
+local mapNamesByID = {}
+
 -- Apply a header string to our zone text, scaled to the current setting.
 local function SetZoneHeaderText(prov, text)
     prov.zoneText:SetFont(GetMapFontPath(), (db and db.zoneTextFontSize) or 32, "OUTLINE")
@@ -403,14 +382,14 @@ local function AreaLabelPostHook(labelFrame)
 
     local prov = ZoneDetailsDataProviderMixin
     if not prov.zoneText or not labelFrame.Name then return end
-    if not (db and db.showZoneLevel) then prov.lastRawNative = nil; return end
+    if not (db and db.showZoneLevel) then prov.lastRawNative, prov.lastEvalMap = nil, nil; return end
 
     local raw = labelFrame.Name:GetText() or ""
 
     -- Continent map: the hover tick already resolved the hovered child zone.
     if prov.hoverMode then
         local id = prov.lastHoveredID
-        if not (id and zones[id]) then prov.lastRawNative = nil; return end
+        if not (id and zones[id]) then prov.lastRawNative, prov.lastEvalMap = nil, nil; return end
         labelFrame.Name:SetText("")
         if raw == prov.lastRawNative and id == prov.lastHeaderId then return end
         prov.lastRawNative, prov.lastHeaderId = raw, id
@@ -421,25 +400,51 @@ local function AreaLabelPostHook(labelFrame)
 
     -- Zone map: only take over when the shown map is a zone we track.
     local displayedMapID = WorldMapFrame:GetMapID()
-    if not (displayedMapID and zones[displayedMapID]) then prov.lastRawNative = nil; return end
+    if not (displayedMapID and zones[displayedMapID]) then prov.lastRawNative, prov.lastEvalMap = nil, nil; return end
 
     labelFrame.Name:SetText("")  -- our header carries the (sub)zone instead
+
+    -- This hook runs every frame the map is open. The header depends only on the
+    -- shown map, the native label text, and the cursor; when none of those changed
+    -- since last frame, skip the C_Map queries and string work below entirely.
+    -- ApplyTexts and the branches above nil lastEvalMap to force a recompute.
+    local focus = WorldMapFrame:IsCanvasMouseFocus()
+    local nx, ny
+    if focus then
+        nx, ny = WorldMapFrame:GetNormalizedCursorPosition()
+    end
+    if displayedMapID == prov.lastEvalMap and raw == prov.lastEvalRaw
+        and focus == prov.lastEvalFocus and nx == prov.lastEvalNX and ny == prov.lastEvalNY then
+        return
+    end
+    prov.lastEvalMap, prov.lastEvalRaw, prov.lastEvalFocus, prov.lastEvalNX, prov.lastEvalNY =
+        displayedMapID, raw, focus, nx, ny
 
     -- Resolve what the cursor is over via C_Map.GetMapInfoAtPosition (not the label
     -- text): an adjacent zone is a different map and must be recognised even when
     -- Blizzard shows the same text for it as for somewhere in the current zone.
     local headerID, subzone = displayedMapID, nil
-    if WorldMapFrame:IsCanvasMouseFocus() then
-        local nx, ny = WorldMapFrame:GetNormalizedCursorPosition()
+    if focus then
         local posInfo = C_Map.GetMapInfoAtPosition(displayedMapID, nx, ny)
         if posInfo and posInfo.mapID and posInfo.mapID ~= displayedMapID then
             -- Cursor is over a different map (an adjacent zone): replace the title.
             headerID = posInfo.mapID
         else
             -- Same map: a non-zone-name label is a subzone to fold in.
-            local dispInfo = C_Map.GetMapInfo(displayedMapID)
-            local stripped = StripColors(raw)
-            if dispInfo and stripped ~= "" and stripped ~= dispInfo.name then
+            local mapName = mapNamesByID[displayedMapID]
+            if not mapName then
+                local dispInfo = C_Map.GetMapInfo(displayedMapID)
+                mapName = dispInfo and dispInfo.name
+                if mapName then mapNamesByID[displayedMapID] = mapName end
+            end
+            local stripped
+            if raw == prov.lastStripIn then
+                stripped = prov.lastStripOut
+            else
+                stripped = StripColors(raw)
+                prov.lastStripIn, prov.lastStripOut = raw, stripped
+            end
+            if mapName and stripped ~= "" and stripped ~= mapName then
                 subzone = stripped
             end
         end
@@ -482,9 +487,10 @@ end
 -- entry yields nil from every getter, which clears the strings. pcall keeps a data
 -- error from breaking the per-frame hover loop.
 function ZoneDetailsDataProviderMixin:ApplyTexts(mapID)
-    -- Invalidate the area-label hook's header cache so it rebuilds (with any subzone)
-    -- on the next frame rather than leaving the base header we set here.
-    self.lastRawNative = nil
+    -- Invalidate the area-label hook's header cache and its per-frame eval key so it
+    -- rebuilds (with any subzone) on the next frame rather than leaving the base
+    -- header we set here.
+    self.lastRawNative, self.lastEvalMap = nil, nil
 
     local font = GetMapFontPath()
     local function query(fn)
@@ -1000,17 +1006,17 @@ function ZoneDetails:GetProfessionDetails(mapID)
     end
 
     local playerProfs = self:GetProfessions()
-    local profText = ""
+    local lines = {}
     local hasRelevantProf = playerProfs[L["Mining"]] or playerProfs[L["Herbalism"]] or playerProfs[L["Fishing"]]
 
     if hasRelevantProf then
-        profText = ("\n|cffffff00%s:|r"):format(L["Professions"])
+        lines[#lines + 1] = ("\n|cffffff00%s:|r"):format(L["Professions"])
     end
 
     -- Fishing
     if db.showFishing and zones[mapID].fishing_min and playerProfs[L["Fishing"]] then
         local r, g, b = self:FishingColor(zones[mapID].fishing_min, playerProfs[L["Fishing"]])
-        profText = profText .. ("\n|cffffff00%s|r |cff%02x%02x%02x[%d]|r\n"):format(
+        lines[#lines + 1] = ("\n|cffffff00%s|r |cff%02x%02x%02x[%d]|r\n"):format(
             L["Fishing Minimum"],
             r * 255, g * 255, b * 255,
             zones[mapID].fishing_min
@@ -1019,11 +1025,11 @@ function ZoneDetails:GetProfessionDetails(mapID)
 
     -- Herbs
     if db.showHerbs and zones[mapID].herbs and playerProfs[L["Herbalism"]] then
-        profText = profText .. ("\n|cffffff00%s:|r"):format(L["Herbs"])
+        lines[#lines + 1] = ("\n|cffffff00%s:|r"):format(L["Herbs"])
         for _, herb in ipairs(zones[mapID].herbs) do
             if herbs[herb] then
                 local r, g, b = self:LevelColor(herbs[herb].low, herbs[herb].high, playerProfs[L["Herbalism"]])
-                profText = profText .. ("\n%s |cff%02x%02x%02x[%d-%d]|r"):format(
+                lines[#lines + 1] = ("\n%s |cff%02x%02x%02x[%d-%d]|r"):format(
                     herb, r * 255, g * 255, b * 255,
                     herbs[herb].low, herbs[herb].high
                 )
@@ -1033,11 +1039,11 @@ function ZoneDetails:GetProfessionDetails(mapID)
 
     -- Mining Nodes
     if db.showMineNodes and zones[mapID].nodes and playerProfs[L["Mining"]] then
-        profText = profText .. ("\n|cffffff00%s:|r"):format(L["Nodes"])
+        lines[#lines + 1] = ("\n|cffffff00%s:|r"):format(L["Nodes"])
         for _, node in ipairs(zones[mapID].nodes) do
             if nodes[node] then
                 local r, g, b = self:LevelColor(nodes[node].low, nodes[node].high, playerProfs[L["Mining"]])
-                profText = profText .. ("\n%s |cff%02x%02x%02x[%d-%d]|r"):format(
+                lines[#lines + 1] = ("\n%s |cff%02x%02x%02x[%d-%d]|r"):format(
                     node, r * 255, g * 255, b * 255,
                     nodes[node].low, nodes[node].high
                 )
@@ -1045,7 +1051,7 @@ function ZoneDetails:GetProfessionDetails(mapID)
         end
     end
 
-    return profText
+    return table.concat(lines)
 end
 
 -- ============================================================================
@@ -1058,17 +1064,36 @@ end
 -- map units (0-100 scale) of each other.
 local PIN_CLUSTER_EPSILON = 3.0
 
+-- One-entry pin cache. A build is fully determined by (map, player level, faction,
+-- pin toggles), and each map open triggers 2-3 refreshes (the framework's own plus
+-- the OnShow/Maximize hooks), so cache the last build under that key. `false` caches
+-- a legitimately empty result. A build that skipped an entry because GetRealZoneText
+-- hadn't resolved yet (right after login) is NOT cached, so it retries next refresh.
+-- The pin framework only reads from the info tables, so reuse is safe.
+local pinsCacheKey, pinsCacheValue
+
 function ZoneDetails:GetPins()
     local mapID = WorldMapFrame:GetMapID()
+    local cacheKey = tostring(mapID) .. ":" .. tostring(playerLevel) .. ":"
+        .. (isHorde and "H" or isAlliance and "A" or "N")
+        .. (db.showInstancePins and ":1" or ":0") .. (db.showRaidPins and ":1" or ":0")
+    if cacheKey == pinsCacheKey then
+        return pinsCacheValue or nil
+    end
+
     local mapInfo = C_Map.GetMapInfo(mapID)
     if not mapInfo or mapInfo.mapType ~= WORLDMAP_ZONE then
+        pinsCacheKey, pinsCacheValue = cacheKey, false
         return nil
     end
 
     local zone = zones[mapID]
     if not zone then
+        pinsCacheKey, pinsCacheValue = cacheKey, false
         return nil
     end
+
+    local resolveFailed = false
 
     -- Faction colour is zone-wide; compute it once.
     local fr, fg, fb = self:GetFactionColor(mapID)
@@ -1080,7 +1105,7 @@ function ZoneDetails:GetPins()
         local instData = instances[instance]
         if not (instData and instData.entrance) then return end
         local instName = ResolveInstanceName(instance)
-        if not instName then return end  -- not present on this client; skip
+        if not instName then resolveFailed = true; return end  -- not resolved (yet); skip and don't cache
         -- A zone may override an instance's pin position on its own map -- used when an
         -- entrance physically sits in a sub-zone with its own coordinate system (the
         -- base instances[].entrance serves the zone the entrance is keyed to).
@@ -1118,24 +1143,31 @@ function ZoneDetails:GetPins()
     if db.showRaidPins and zone.raids then
         for _, raid in ipairs(zone.raids) do
             local raidData = raids[raid]
-            local raidName = raidData and raidData.entrance and ResolveInstanceName(raid)
-            if raidName then
-                local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
-                items[#items + 1] = {
-                    x = raidData.entrance[1],
-                    y = raidData.entrance[2],
-                    group = nil,
-                    isRaid = true,
-                    line = ("|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r %s"):format(
-                        fr * 255, fg * 255, fb * 255, raidName,
-                        r2 * 255, g2 * 255, b2 * 255, raidData.low, raidData.high, PlayerCountText(raidData)
-                    ),
-                }
+            if raidData and raidData.entrance then
+                local raidName = ResolveInstanceName(raid)
+                if not raidName then
+                    resolveFailed = true  -- not resolved (yet); skip and don't cache
+                else
+                    local r2, g2, b2 = self:LevelColor(raidData.low, raidData.high, playerLevel)
+                    items[#items + 1] = {
+                        x = raidData.entrance[1],
+                        y = raidData.entrance[2],
+                        group = nil,
+                        isRaid = true,
+                        line = ("|cff%02x%02x%02x%s|r |cff%02x%02x%02x[%d-%d]|r %s"):format(
+                            fr * 255, fg * 255, fb * 255, raidName,
+                            r2 * 255, g2 * 255, b2 * 255, raidData.low, raidData.high, PlayerCountText(raidData)
+                        ),
+                    }
+                end
             end
         end
     end
 
     if #items == 0 then
+        if not resolveFailed then
+            pinsCacheKey, pinsCacheValue = cacheKey, false
+        end
         return nil
     end
 
@@ -1181,6 +1213,9 @@ function ZoneDetails:GetPins()
         }
     end
 
+    if not resolveFailed then
+        pinsCacheKey, pinsCacheValue = cacheKey, myPOIList
+    end
     return myPOIList
 end
 
@@ -1294,6 +1329,11 @@ end
 -- ZONE DATA
 -- ============================================================================
 
+if not (isMoP or isCata) then -- Base zones are keyed by Classic-client uiMapIDs; MoP/Cata
+-- clients use the retail-ID zone block further down (zero key overlap), so skip building
+-- these tables there. Instance/raid/BG/herb/node data below stays shared across clients.
+-- Data keeps its original (un-nested) indentation to keep diffs reviewable.
+
 -- ============================================================================
 -- Alliance Starting Zones
 -- ============================================================================
@@ -1302,7 +1342,10 @@ end
 zones[1429] = {
     low = 1,
     high = 10,
-    continent = Eastern_Kingdoms,
+    -- The Stockade is inside Stormwind; show it here too, at the city's position on
+    -- the Elwynn map (instances[34].entrance holds the Stormwind-map coords).
+    instances = {34},
+    instanceCoords = { [34] = {20.3, 36.7} },
     faction = "Alliance",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
@@ -1313,7 +1356,6 @@ zones[1429] = {
 zones[1438] = {
     low = 1,
     high = 11,
-    continent = Kalimdor,
     faction = "Alliance",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
@@ -1323,7 +1365,6 @@ zones[1438] = {
 zones[1426] = {
     low = 1,
     high = 12,
-    continent = Eastern_Kingdoms,
     faction = "Alliance",
     fishing_min = 1,
     instances = {90},
@@ -1335,7 +1376,6 @@ zones[1426] = {
 zones[1943] = {
     low = 1,
     high = 10,
-    continent = Kalimdor,
     faction = "Alliance",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
@@ -1346,7 +1386,6 @@ zones[1943] = {
 zones[1436] = {
     low = 9,
     high = 18,
-    continent = Eastern_Kingdoms,
     instances = {36},
     faction = "Alliance",
     fishing_min = 55,
@@ -1358,7 +1397,6 @@ zones[1436] = {
 zones[1432] = {
     low = 10,
     high = 18,
-    continent = Eastern_Kingdoms,
     faction = "Alliance",
     fishing_min = 20,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Bruiseweed"},
@@ -1369,7 +1407,6 @@ zones[1432] = {
 zones[1439] = {
     low = 11,
     high = 19,
-    continent = Kalimdor,
     faction = "Alliance",
     fishing_min = 20,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
@@ -1380,7 +1417,6 @@ zones[1439] = {
 zones[1950] = {
     low = 10,
     high = 20,
-    continent = Kalimdor,
     faction = "Alliance",
     fishing_min = 20,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
@@ -1395,7 +1431,11 @@ zones[1950] = {
 zones[1411] = {
     low = 1,
     high = 10,
-    continent = Kalimdor,
+    -- Ragefire Chasm is inside Orgrimmar; show it here too. The city is cropped at
+    -- this map's top edge (the true spot projects to y -0.2), so the pin is clamped
+    -- onto the visible city footprint (y 0-13).
+    instances = {389},
+    instanceCoords = { [389] = {46.3, 7.0} },
     faction = "Horde",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal"},
@@ -1406,7 +1446,6 @@ zones[1411] = {
 zones[1412] = {
     low = 1,
     high = 10,
-    continent = Kalimdor,
     faction = "Horde",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
@@ -1417,7 +1456,6 @@ zones[1412] = {
 zones[1420] = {
     low = 1,
     high = 12,
-    continent = Eastern_Kingdoms,
     complexes = {189},
     faction = "Horde",
     fishing_min = 1,
@@ -1429,7 +1467,6 @@ zones[1420] = {
 zones[1941] = {
     low = 1,
     high = 10,
-    continent = Eastern_Kingdoms,
     faction = "Horde",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
@@ -1441,7 +1478,6 @@ zones[1421] = {
     low = 10,
     high = 20,
     instances = {33},
-    continent = Eastern_Kingdoms,
     faction = "Horde",
     fishing_min = 20,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
@@ -1452,7 +1488,6 @@ zones[1421] = {
 zones[1413] = {
     low = 10,
     high = 33,
-    continent = Kalimdor,
     instances = {43, 47, 129},
     battlegrounds = {489},
     faction = "Horde",
@@ -1465,7 +1500,6 @@ zones[1413] = {
 zones[1942] = {
     low = 10,
     high = 20,
-    continent = Eastern_Kingdoms,
     raids = {568},
     faction = "Horde",
     fishing_min = 20,
@@ -1481,7 +1515,6 @@ zones[1942] = {
 zones[1431] = {
     low = 10,
     high = 30,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     fishing_min = 55,
     herbs = {"Mageroyal", "Briarthorn", "Wild Steelbloom", "Grave Moss", "Kingsblood"},
@@ -1492,7 +1525,6 @@ zones[1431] = {
 zones[1433] = {
     low = 15,
     high = 25,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     fishing_min = 55,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Bruiseweed"},
@@ -1503,7 +1535,6 @@ zones[1433] = {
 zones[1437] = {
     low = 20,
     high = 30,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     fishing_min = 55,
     herbs = {"Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood", "Liferoot"},
@@ -1514,7 +1545,6 @@ zones[1437] = {
 zones[1424] = {
     low = 20,
     high = 31,
-    continent = Eastern_Kingdoms,
     battlegrounds = {30},
     faction = "Contested",
     fishing_min = 55,
@@ -1526,7 +1556,6 @@ zones[1424] = {
 zones[1416] = {
     low = 27,
     high = 39,
-    continent = Eastern_Kingdoms,
     battlegrounds = {30},
     faction = "Contested",
     fishing_min = 130,
@@ -1538,7 +1567,6 @@ zones[1416] = {
 zones[1417] = {
     low = 30,
     high = 40,
-    continent = Eastern_Kingdoms,
     battlegrounds = {529},
     faction = "Contested",
     fishing_min = 130,
@@ -1550,7 +1578,6 @@ zones[1417] = {
 zones[1434] = {
     low = 30,
     high = 50,
-    continent = Eastern_Kingdoms,
     raids = {309},
     faction = "Contested",
     fishing_min = 130,
@@ -1562,7 +1589,6 @@ zones[1434] = {
 zones[1435] = {
     low = 36,
     high = 43,
-    continent = Eastern_Kingdoms,
     instances = {109},
     faction = "Contested",
     fishing_min = 130,
@@ -1574,7 +1600,6 @@ zones[1435] = {
 zones[1418] = {
     low = 36,
     high = 45,
-    continent = Eastern_Kingdoms,
     instances = {70},
     faction = "Contested",
     herbs = {"Wild Steelbloom", "Kingsblood", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Firebloom", "Purple Lotus"},
@@ -1585,7 +1610,6 @@ zones[1418] = {
 zones[1425] = {
     low = 41,
     high = 49,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     fishing_min = 205,
     herbs = {"Stranglekelp", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Purple Lotus", "Sungrass", "Ghost Mushroom", "Golden Sansam"},
@@ -1596,7 +1620,6 @@ zones[1425] = {
 zones[1422] = {
     low = 43,
     high = 57,
-    continent = Eastern_Kingdoms,
     instances = {289},
     faction = "Contested",
     fishing_min = 205,
@@ -1608,7 +1631,6 @@ zones[1422] = {
 zones[1427] = {
     low = 43,
     high = 56,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     herbs = {"Firebloom"},
     nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Dark Iron Deposit", "Small Thorium Vein"},
@@ -1618,7 +1640,6 @@ zones[1427] = {
 zones[1419] = {
     low = 46,
     high = 60,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     herbs = {"Goldthorn", "Firebloom", "Sungrass", "Gromsblood"},
     nodes = {"Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"},
@@ -1628,7 +1649,6 @@ zones[1419] = {
 zones[1428] = {
     low = 50,
     high = 59,
-    continent = Eastern_Kingdoms,
     instances = {230, 229},
     raids = {409, 469},
     faction = "Contested",
@@ -1641,7 +1661,6 @@ zones[1428] = {
 zones[1430] = {
     low = 50,
     high = MAX_LEVEL,
-    continent = Eastern_Kingdoms,
     raids = {532},
     faction = "Contested",
     fishing_min = 330,
@@ -1651,7 +1670,6 @@ zones[1430] = {
 zones[1423] = {
     low = 54,
     high = 59,
-    continent = Eastern_Kingdoms,
     instances = {329},
     raids = {533},
     faction = "Contested",
@@ -1668,7 +1686,6 @@ zones[1423] = {
 zones[1450] = {
     low = 10,
     high = MAX_LEVEL,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 205,
 }
@@ -1677,7 +1694,6 @@ zones[1450] = {
 zones[1442] = {
     low = 15,
     high = 25,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 55,
     herbs = {"Mageroyal", "Bruiseweed", "Wild Steelbloom", "Kingsblood"},
@@ -1690,7 +1706,6 @@ zones[1440] = {
     high = 30,
     instances = {48},
     battlegrounds = {489},
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 55,
     herbs = {"Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Kingsblood", "Liferoot"},
@@ -1701,7 +1716,6 @@ zones[1440] = {
 zones[1441] = {
     low = 24,
     high = 35,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 130,
     herbs = {"Bruiseweed", "Wild Steelbloom", "Kingsblood"},
@@ -1712,7 +1726,6 @@ zones[1441] = {
 zones[1443] = {
     low = 30,
     high = 39,
-    continent = Kalimdor,
     instances = {349},
     faction = "Contested",
     fishing_min = 130,
@@ -1724,7 +1737,6 @@ zones[1443] = {
 zones[1445] = {
     low = 33,
     high = 50,
-    continent = Kalimdor,
     raids = {249},
     faction = "Contested",
     fishing_min = 130,
@@ -1736,7 +1748,6 @@ zones[1445] = {
 zones[1446] = {
     low = 40,
     high = 50,
-    continent = Kalimdor,
     instances = {209},
     complexes = {2367},
     faction = "Contested",
@@ -1749,7 +1760,6 @@ zones[1446] = {
 zones[1444] = {
     low = 41,
     high = 50,
-    continent = Kalimdor,
     complexes = {429},
     faction = "Contested",
     fishing_min = 205,
@@ -1761,7 +1771,6 @@ zones[1444] = {
 zones[1447] = {
     low = 42,
     high = 55,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 205,
     herbs = {"Stranglekelp", "Goldthorn", "Khadgar's Whisker", "Purple Lotus", "Sungrass", "Golden Sansam", "Mountain Silversage"},
@@ -1772,7 +1781,6 @@ zones[1447] = {
 zones[1448] = {
     low = 47,
     high = 54,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 205,
     herbs = {"Arthas' Tears", "Sungrass", "Gromsblood", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Plaguebloom"},
@@ -1783,7 +1791,6 @@ zones[1448] = {
 zones[1449] = {
     low = 48,
     high = 55,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 205,
     herbs = {"Sungrass", "Blindweed", "Golden Sansam", "Dreamfoil", "Mountain Silversage"},
@@ -1794,7 +1801,6 @@ zones[1449] = {
 zones[1451] = {
     low = 55,
     high = 59,
-    continent = Kalimdor,
     raids = {509, 531},
     faction = "Contested",
     fishing_min = 330,
@@ -1806,7 +1812,6 @@ zones[1451] = {
 zones[1452] = {
     low = 55,
     high = 60,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 330,
     herbs = {"Mountain Silversage", "Icecap", "Black Lotus"},
@@ -1817,11 +1822,13 @@ zones[1452] = {
 -- Outland Zones (TBC)
 -- ============================================================================
 
+if isTBC or isWrath then -- Outland uiMapIDs (1944+) exist only on TBC/Wrath clients;
+-- the Era client can never show these maps, and MoP/Cata redefine Outland with retail IDs.
+
 -- Hellfire Peninsula
 zones[1944] = {
     low = 58,
     high = 63,
-    continent = Outland,
     instances = {543, 542, 540},
     raids = {544},
     faction = "Contested",
@@ -1834,7 +1841,6 @@ zones[1944] = {
 zones[1946] = {
     low = 60,
     high = 64,
-    continent = Outland,
     instances = {546, 545, 547},
     raids = {548},
     faction = "Contested",
@@ -1847,7 +1853,6 @@ zones[1946] = {
 zones[1952] = {
     low = 62,
     high = 65,
-    continent = Outland,
     complexes = {3790},
     faction = "Contested",
     fishing_min = 355,
@@ -1859,7 +1864,6 @@ zones[1952] = {
 zones[1951] = {
     low = 64,
     high = 67,
-    continent = Outland,
     faction = "Contested",
     fishing_min = 380,
     herbs = {"Felweed", "Dreaming Glory", "Terocone"},
@@ -1870,7 +1874,6 @@ zones[1951] = {
 zones[1949] = {
     low = 65,
     high = 68,
-    continent = Outland,
     raids = {565},
     faction = "Contested",
     fishing_min = 355,
@@ -1882,7 +1885,6 @@ zones[1949] = {
 zones[1953] = {
     low = 67,
     high = 70,
-    continent = Outland,
     instances = {554, 553, 552},
     raids = {550},
     battlegrounds = {566},
@@ -1896,7 +1898,6 @@ zones[1953] = {
 zones[1948] = {
     low = 67,
     high = 70,
-    continent = Outland,
     raids = {564},
     faction = "Contested",
     fishing_min = 380,
@@ -1908,12 +1909,13 @@ zones[1948] = {
 zones[1957] = {
     low = 70,
     high = 70,
-    continent = Eastern_Kingdoms,
     instances = {585},
     raids = {580},
     faction = "Contested",
     fishing_min = 405,
 }
+
+end -- if isTBC or isWrath (Outland zones)
 
 -- ============================================================================
 -- Cities
@@ -1923,7 +1925,6 @@ zones[1957] = {
 zones[1454] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Kalimdor,
     instances = {389},
     faction = "Horde",
     fishing_min = 1,
@@ -1933,7 +1934,6 @@ zones[1454] = {
 zones[1456] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Kalimdor,
     faction = "Horde",
     fishing_min = 1,
 }
@@ -1942,7 +1942,6 @@ zones[1456] = {
 zones[1458] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Eastern_Kingdoms,
     faction = "Horde",
     fishing_min = 1,
 }
@@ -1951,7 +1950,6 @@ zones[1458] = {
 zones[1954] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Eastern_Kingdoms,
     faction = "Horde",
 }
 
@@ -1959,7 +1957,6 @@ zones[1954] = {
 zones[1457] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Kalimdor,
     faction = "Alliance",
     fishing_min = 1,
 }
@@ -1968,7 +1965,6 @@ zones[1457] = {
 zones[1455] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Eastern_Kingdoms,
     faction = "Alliance",
     fishing_min = 1,
 }
@@ -1977,7 +1973,6 @@ zones[1455] = {
 zones[1453] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Eastern_Kingdoms,
     instances = {34},
     faction = "Alliance",
     fishing_min = 1,
@@ -1987,7 +1982,6 @@ zones[1453] = {
 zones[1947] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Kalimdor,
     faction = "Alliance",
 }
 
@@ -1995,9 +1989,10 @@ zones[1947] = {
 zones[1955] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Outland,
     faction = "Contested",
 }
+
+end -- if not (isMoP or isCata) (base zones)
 
 -- ============================================================================
 -- INSTANCE DATA
@@ -2011,7 +2006,6 @@ zones[1955] = {
 instances[389] = {
     low = 13,
     high = 22,
-    continent = Kalimdor,
     entrance = {52, 49},
 }
 
@@ -2019,7 +2013,6 @@ instances[389] = {
 instances[36] = {
     low = 15,
     high = 28,
-    continent = Eastern_Kingdoms,
     entrance = {42, 72},
     fishing_min = 20,
 }
@@ -2028,7 +2021,6 @@ instances[36] = {
 instances[43] = {
     low = 15,
     high = 28,
-    continent = Kalimdor,
     entrance = {46, 36},
     fishing_min = 20,
 }
@@ -2037,7 +2029,6 @@ instances[43] = {
 instances[33] = {
     low = 18,
     high = 32,
-    continent = Eastern_Kingdoms,
     entrance = {42.7, 67.7},
 }
 
@@ -2045,7 +2036,6 @@ instances[33] = {
 instances[48] = {
     low = 20,
     high = 35,
-    continent = Kalimdor,
     entrance = {14, 14},
     fishing_min = 20,
 }
@@ -2054,7 +2044,6 @@ instances[48] = {
 instances[34] = {
     low = 22,
     high = 30,
-    continent = Eastern_Kingdoms,
     entrance = {41, 57},
 }
 
@@ -2062,7 +2051,6 @@ instances[34] = {
 instances[90] = {
     low = 24,
     high = 40,
-    continent = Eastern_Kingdoms,
     entrance = {24, 40},
 }
 
@@ -2070,7 +2058,6 @@ instances[90] = {
 instances[47] = {
     low = 24,
     high = 40,
-    continent = Kalimdor,
     entrance = {42, 90},
 }
 
@@ -2078,7 +2065,6 @@ instances[47] = {
 instances[129] = {
     low = 33,
     high = 47,
-    continent = Kalimdor,
     entrance = {49, 96},
 }
 
@@ -2086,7 +2072,6 @@ instances[129] = {
 instances[70] = {
     low = 35,
     high = 52,
-    continent = Eastern_Kingdoms,
     entrance = {43, 14},
 }
 
@@ -2094,7 +2079,6 @@ instances[70] = {
 instances[349] = {
     low = 35,
     high = 52,
-    continent = Kalimdor,
     entrance = {29, 63},
     fishing_min = 205,
 }
@@ -2103,7 +2087,6 @@ instances[349] = {
 instances[209] = {
     low = 43,
     high = 54,
-    continent = Kalimdor,
     entrance = {39, 20},
 }
 
@@ -2111,7 +2094,6 @@ instances[209] = {
 instances[109] = {
     low = 44,
     high = 60,
-    continent = Eastern_Kingdoms,
     entrance = {70, 54},
     fishing_min = 205,
 }
@@ -2120,7 +2102,6 @@ instances[109] = {
 instances[230] = {
     low = 48,
     high = 60,
-    continent = Eastern_Kingdoms,
     entrance = {29, 38},
 }
 
@@ -2128,7 +2109,6 @@ instances[230] = {
 instances[229] = {
     low = 52,
     high = 60,
-    continent = Eastern_Kingdoms,
     entrance = {28, 38},
 }
 
@@ -2136,7 +2116,6 @@ instances[229] = {
 instances[329] = {
     low = 56,
     high = 60,
-    continent = Eastern_Kingdoms,
     entrance = {31, 13},
     fishing_min = 330,
 }
@@ -2145,7 +2124,6 @@ instances[329] = {
 instances[289] = {
     low = 56,
     high = 60,
-    continent = Eastern_Kingdoms,
     entrance = {69, 73},
     fishing_min = 330,
 }
@@ -2154,21 +2132,18 @@ instances[289] = {
 instances[L["Dire Maul: East"]] = {
     low = 36,
     high = 46,
-    continent = Kalimdor,
     entrance = {59.5, 44},
 }
 
 instances[L["Dire Maul: West"]] = {
     low = 39,
     high = 49,
-    continent = Kalimdor,
     entrance = {58, 44},
 }
 
 instances[L["Dire Maul: North"]] = {
     low = 42,
     high = 52,
-    continent = Kalimdor,
     entrance = {58.9, 41.5},
 }
 
@@ -2176,28 +2151,24 @@ instances[L["Dire Maul: North"]] = {
 instances[L["Scarlet Monastery: Graveyard"]] = {
     low = 26,
     high = 36,
-    continent = Eastern_Kingdoms,
     entrance = {84.28, 30.63},
 }
 
 instances[L["Scarlet Monastery: Library"]] = {
     low = 29,
     high = 39,
-    continent = Eastern_Kingdoms,
     entrance = {85.30, 33},
 }
 
 instances[L["Scarlet Monastery: Armory"]] = {
     low = 32,
     high = 42,
-    continent = Eastern_Kingdoms,
     entrance = {85.83, 31.62},
 }
 
 instances[L["Scarlet Monastery: Cathedral"]] = {
     low = 35,
     high = 45,
-    continent = Eastern_Kingdoms,
     entrance = {85.35, 30.57},
 }
 
@@ -2205,12 +2176,15 @@ instances[L["Scarlet Monastery: Cathedral"]] = {
 -- TBC Instances
 -- ============================================================================
 
+if not isVanilla then -- unreachable on Era/SoD (their zones never reference these keys
+-- and GetRealZoneText can't resolve them there); TBC/Wrath serve them natively and the
+-- MoP/Cata zone block references these numeric keys too.
+
 -- Hellfire Citadel
 -- Hellfire Ramparts
 instances[543] = {
     low = 59,
     high = 67,
-    continent = Outland,
     entrance = {47.5, 53.6},
 }
 
@@ -2218,7 +2192,6 @@ instances[543] = {
 instances[542] = {
     low = 60,
     high = 68,
-    continent = Outland,
     entrance = {46.0, 51.8},
 }
 
@@ -2226,7 +2199,6 @@ instances[542] = {
 instances[540] = {
     low = 69,
     high = 70,
-    continent = Outland,
     entrance = {47.7, 52.0},
 }
 
@@ -2235,7 +2207,6 @@ instances[540] = {
 instances[547] = {
     low = 61,
     high = 69,
-    continent = Outland,
     entrance = {50.2, 41.0},
 }
 
@@ -2243,7 +2214,6 @@ instances[547] = {
 instances[546] = {
     low = 62,
     high = 70,
-    continent = Outland,
     entrance = {52.7, 36.2},
 }
 
@@ -2251,7 +2221,6 @@ instances[546] = {
 instances[545] = {
     low = 69,
     high = 70,
-    continent = Outland,
     entrance = {50.3, 33.3},
 }
 
@@ -2260,7 +2229,6 @@ instances[545] = {
 instances[557] = {
     low = 63,
     high = 70,
-    continent = Outland,
     entrance = {39.6, 58.5},
 }
 
@@ -2268,7 +2236,6 @@ instances[557] = {
 instances[558] = {
     low = 64,
     high = 70,
-    continent = Outland,
     entrance = {35.0, 65.7},
 }
 
@@ -2276,7 +2243,6 @@ instances[558] = {
 instances[556] = {
     low = 66,
     high = 70,
-    continent = Outland,
     entrance = {44.9, 65.6},
 }
 
@@ -2284,7 +2250,6 @@ instances[556] = {
 instances[555] = {
     low = 69,
     high = 70,
-    continent = Outland,
     entrance = {39.6, 71.0},
 }
 
@@ -2293,7 +2258,6 @@ instances[555] = {
 instances[554] = {
     low = 68,
     high = 70,
-    continent = Outland,
     entrance = {70.6, 69.7},
 }
 
@@ -2301,7 +2265,6 @@ instances[554] = {
 instances[553] = {
     low = 69,
     high = 70,
-    continent = Outland,
     entrance = {71.7, 55.0},
 }
 
@@ -2309,7 +2272,6 @@ instances[553] = {
 instances[552] = {
     low = 69,
     high = 70,
-    continent = Outland,
     entrance = {74.4, 57.7},
 }
 
@@ -2321,9 +2283,10 @@ instances[552] = {
 instances[585] = {
     low = 69,
     high = 70,
-    continent = Eastern_Kingdoms,
     entrance = {61.3, 30.9},
 }
+
+end -- if not isVanilla (TBC instances)
 
 -- ============================================================================
 -- RAID DATA
@@ -2338,7 +2301,6 @@ raids[409] = {
     low = 55,
     high = 60,
     players = 40,
-    continent = Eastern_Kingdoms,
     entrance = {30.5, 38},
 }
 
@@ -2347,7 +2309,6 @@ raids[249] = {
     low = 55,
     high = 60,
     players = 40,
-    continent = Kalimdor,
     entrance = {52, 76},
 }
 -- WotLK patch 3.2.2 reissued Onyxia's Lair as a level-80 10/25 raid (persists through
@@ -2364,7 +2325,6 @@ raids[469] = {
     low = 60,
     high = 60,
     players = 40,
-    continent = Eastern_Kingdoms,
     entrance = {29, 34},
 }
 
@@ -2373,7 +2333,6 @@ raids[309] = {
     low = 60,
     high = 60,
     players = 20,
-    continent = Eastern_Kingdoms,
     entrance = {53.9, 17.6},
 }
 
@@ -2382,7 +2341,6 @@ raids[509] = {
     low = 60,
     high = 60,
     players = 20,
-    continent = Kalimdor,
     entrance = {29, 93},
 }
 
@@ -2391,7 +2349,6 @@ raids[531] = {
     low = 60,
     high = 60,
     players = 40,
-    continent = Kalimdor,
     entrance = {28.6, 92.4},
 }
 
@@ -2400,7 +2357,6 @@ raids[533] = {
     low = 60,
     high = 60,
     players = 40,
-    continent = Eastern_Kingdoms,
     entrance = {39, 26},
 }
 
@@ -2408,12 +2364,13 @@ raids[533] = {
 -- TBC Raids
 -- ============================================================================
 
+if not isVanilla then -- same reachability rules as the TBC Instances gate above
+
 -- Karazhan
 raids[532] = {
     low = 70,
     high = 70,
     players = 10,
-    continent = Eastern_Kingdoms,
     entrance = {46.9, 74.7},
 }
 
@@ -2422,7 +2379,6 @@ raids[544] = {
     low = 70,
     high = 70,
     players = 25,
-    continent = Outland,
     entrance = {46.4, 54.8},
 }
 
@@ -2431,7 +2387,6 @@ raids[565] = {
     low = 70,
     high = 70,
     players = 25,
-    continent = Outland,
     entrance = {68.5, 24.3},
 }
 
@@ -2440,7 +2395,6 @@ raids[548] = {
     low = 70,
     high = 70,
     players = 25,
-    continent = Outland,
     entrance = {50.3, 32.8},
 }
 
@@ -2449,7 +2403,6 @@ raids[550] = {
     low = 70,
     high = 70,
     players = 25,
-    continent = Outland,
     entrance = {73.7, 63.7},
 }
 
@@ -2460,7 +2413,6 @@ raids[564] = {
     low = 70,
     high = 70,
     players = 25,
-    continent = Outland,
     entrance = {71.0, 46.4},
 }
 
@@ -2469,7 +2421,6 @@ raids[568] = {
     low = 70,
     high = 70,
     players = 10,
-    continent = Eastern_Kingdoms,
     entrance = {82.0, 64.3},
 }
 
@@ -2478,9 +2429,10 @@ raids[580] = {
     low = 70,
     high = 70,
     players = 25,
-    continent = Eastern_Kingdoms,
     entrance = {44.3, 45.6},
 }
+
+end -- if not isVanilla (TBC raids)
 
 -- ============================================================================
 -- BATTLEGROUND DATA
@@ -2697,6 +2649,8 @@ herbs["Black Lotus"] = {
     high = 325,
 }
 
+if not isVanilla then -- TBC herbs: referenced by TBC/Wrath and MoP/Cata zone lists
+
 -- TBC Herbs
 herbs["Felweed"] = {
     low = 300,
@@ -2747,6 +2701,8 @@ herbs["Fel Lotus"] = {
     low = 375,
     high = 400,
 }
+
+end -- if not isVanilla (TBC herbs)
 
 -- ============================================================================
 -- MINING NODE DATA
@@ -2848,6 +2804,8 @@ nodes["Large Obsidian Chunk"] = {
     high = 310,
 }
 
+if not isVanilla then -- TBC nodes: referenced by TBC/Wrath and MoP/Cata zone lists
+
 -- TBC Nodes
 nodes["Fel Iron Deposit"] = {
     low = 275,
@@ -2869,6 +2827,8 @@ nodes["Khorium Vein"] = {
     high = 400,
 }
 
+end -- if not isVanilla (TBC nodes)
+
 -- ============================================================================
 -- Season of Discovery Data (Era client with an active SoD season only)
 -- ============================================================================
@@ -2878,7 +2838,6 @@ if isSoD then
     instances[L["Demon Fall Canyon"]] = {
         low = 57,
         high = 60,
-        continent = Kalimdor,
         entrance = {84.5, 75.0},
     }
     if zones[1440] then
@@ -2891,7 +2850,6 @@ if isSoD then
         low = 60,
         high = 60,
         players = "20-40",
-        continent = Eastern_Kingdoms,
         entrance = {67, 85},
     }
     if zones[1423] then
@@ -2911,18 +2869,17 @@ if isSoD then
     -- Dungeons reworked into raids. Keyed by the dungeon's numeric instance mapID so the
     -- name resolves via GetRealZoneText, and reusing the dungeon's existing entrance so the
     -- raid pin stacks onto the dungeon pin.
-    addSoDRaid(1440, 48,  { low = 25, high = 25, players = 10, continent = Kalimdor,         entrance = {14, 14} })  -- Blackfathom Deeps (Ashenvale)
-    addSoDRaid(1426, 90,  { low = 40, high = 40, players = 10, continent = Eastern_Kingdoms, entrance = {24, 40} })  -- Gnomeregan (Dun Morogh)
-    addSoDRaid(1435, 109, { low = 50, high = 50, players = 20, continent = Eastern_Kingdoms, entrance = {70, 54} })  -- Sunken Temple (Swamp of Sorrows)
+    addSoDRaid(1440, 48,  { low = 25, high = 25, players = 10, entrance = {14, 14} })  -- Blackfathom Deeps (Ashenvale)
+    addSoDRaid(1426, 90,  { low = 40, high = 40, players = 10, entrance = {24, 40} })  -- Gnomeregan (Dun Morogh)
+    addSoDRaid(1435, 109, { low = 50, high = 50, players = 20, entrance = {70, 54} })  -- Sunken Temple (Swamp of Sorrows)
     -- Upper Blackrock Spire shares Blackrock Spire's door (instance 229) in Burning Steppes.
-    addSoDRaid(1428, L["Upper Blackrock Spire"], { low = 56, high = 60, players = 10, continent = Eastern_Kingdoms, entrance = {28, 38} })
+    addSoDRaid(1428, L["Upper Blackrock Spire"], { low = 56, high = 60, players = 10, entrance = {28, 38} })
 
     -- New SoD dungeon: Karazhan Crypts at Morgan's Plot, Deadwind Pass.
     instances[L["Karazhan Crypts"]] = {
         low = 60,
         high = 60,
-        continent = Eastern_Kingdoms,
-        entrance = {39, 68},  -- approximate (NW of Karazhan); verify in-game
+        entrance = {41.2, 78.9},  -- crypt entrance in the Morgan's Plot graveyard
     }
     if zones[1430] then
         zones[1430].instances = zones[1430].instances or {}
@@ -2957,7 +2914,10 @@ if isMoP or isCata then
 zones[37] = {
     low = 1,
     high = 10,
-    continent = Eastern_Kingdoms,
+    -- The Stockade is inside Stormwind; show it here too, at the city's position on
+    -- the Elwynn map (instances[34].entrance holds the Cata+ Stormwind-map coords).
+    instances = {34},
+    instanceCoords = { [34] = {19.8, 35.7} },
     faction = "Alliance",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
@@ -2968,7 +2928,6 @@ zones[37] = {
 zones[57] = {
     low = 1,
     high = 11,
-    continent = Kalimdor,
     faction = "Alliance",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
@@ -2978,7 +2937,6 @@ zones[57] = {
 zones[27] = {
     low = 1,
     high = 12,
-    continent = Eastern_Kingdoms,
     faction = "Alliance",
     fishing_min = 1,
     instances = {90},
@@ -2990,7 +2948,6 @@ zones[27] = {
 zones[97] = {
     low = 1,
     high = 10,
-    continent = Kalimdor,
     faction = "Alliance",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
@@ -3001,7 +2958,6 @@ zones[97] = {
 zones[52] = {
     low = 9,
     high = 18,
-    continent = Eastern_Kingdoms,
     instances = {36},
     faction = "Alliance",
     fishing_min = 55,
@@ -3013,7 +2969,6 @@ zones[52] = {
 zones[48] = {
     low = 10,
     high = 18,
-    continent = Eastern_Kingdoms,
     faction = "Alliance",
     fishing_min = 20,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Bruiseweed"},
@@ -3024,7 +2979,6 @@ zones[48] = {
 zones[62] = {
     low = 11,
     high = 19,
-    continent = Kalimdor,
     faction = "Alliance",
     fishing_min = 20,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
@@ -3035,7 +2989,6 @@ zones[62] = {
 zones[106] = {
     low = 10,
     high = 20,
-    continent = Kalimdor,
     faction = "Alliance",
     fishing_min = 20,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
@@ -3047,7 +3000,10 @@ zones[106] = {
 zones[1] = {
     low = 1,
     high = 10,
-    continent = Kalimdor,
+    -- Ragefire Chasm is inside Orgrimmar; show it here too. The city is cropped at
+    -- this map's top edge, so the pin is clamped onto the visible city footprint.
+    instances = {389},
+    instanceCoords = { [389] = {46.4, 7.0} },
     faction = "Horde",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal"},
@@ -3058,7 +3014,6 @@ zones[1] = {
 zones[7] = {
     low = 1,
     high = 10,
-    continent = Kalimdor,
     faction = "Horde",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
@@ -3069,7 +3024,6 @@ zones[7] = {
 zones[18] = {
     low = 1,
     high = 12,
-    continent = Eastern_Kingdoms,
     instances = {1001, 1004},
     faction = "Horde",
     fishing_min = 1,
@@ -3081,7 +3035,6 @@ zones[18] = {
 zones[94] = {
     low = 1,
     high = 10,
-    continent = Eastern_Kingdoms,
     faction = "Horde",
     fishing_min = 1,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot"},
@@ -3093,7 +3046,6 @@ zones[21] = {
     low = 10,
     high = 20,
     instances = {33},
-    continent = Eastern_Kingdoms,
     faction = "Horde",
     fishing_min = 20,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
@@ -3104,7 +3056,6 @@ zones[21] = {
 zones[10] = {
     low = 10,
     high = 33,
-    continent = Kalimdor,
     instances = {43},
     battlegrounds = {489},
     faction = "Horde",
@@ -3117,7 +3068,6 @@ zones[10] = {
 zones[199] = {
     low = 30,
     high = 35,
-    continent = Kalimdor,
     instances = {47, 129},
     faction = "Contested",
     fishing_min = 20,
@@ -3132,11 +3082,15 @@ instances[43].entrance = {38.9, 69.2}   -- Wailing Caverns on Northern Barrens (
 instances[47].entrance = {40.8, 94.5}   -- Razorfen Kraul on Southern Barrens (199)
 instances[129].entrance = {42.7, 94.5}  -- Razorfen Downs on Southern Barrens (199)
 
+-- Same for the redrawn Cata+ city maps (Stormwind gained the harbor, Orgrimmar was
+-- rebuilt): the classic city coordinates land in the wrong spot on the new maps.
+instances[34].entrance = {50.4, 66.4}   -- The Stockade on Cata+ Stormwind (84)
+instances[389].entrance = {52.4, 58.0}  -- Ragefire Chasm on Cata+ Orgrimmar (85)
+
 -- Ghostlands
 zones[95] = {
     low = 10,
     high = 20,
-    continent = Eastern_Kingdoms,
     faction = "Horde",
     fishing_min = 20,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed"},
@@ -3148,7 +3102,6 @@ zones[95] = {
 zones[47] = {
     low = 10,
     high = 30,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     fishing_min = 55,
     herbs = {"Mageroyal", "Briarthorn", "Wild Steelbloom", "Grave Moss", "Kingsblood"},
@@ -3159,7 +3112,6 @@ zones[47] = {
 zones[49] = {
     low = 15,
     high = 25,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     fishing_min = 55,
     herbs = {"Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Bruiseweed"},
@@ -3170,7 +3122,6 @@ zones[49] = {
 zones[56] = {
     low = 20,
     high = 30,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     fishing_min = 55,
     herbs = {"Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood", "Liferoot"},
@@ -3181,7 +3132,6 @@ zones[56] = {
 zones[25] = {
     low = 20,
     high = 31,
-    continent = Eastern_Kingdoms,
     battlegrounds = {30},
     faction = "Contested",
     fishing_min = 55,
@@ -3193,7 +3143,6 @@ zones[25] = {
 zones[14] = {
     low = 30,
     high = 40,
-    continent = Eastern_Kingdoms,
     battlegrounds = {529},
     faction = "Contested",
     fishing_min = 130,
@@ -3205,7 +3154,6 @@ zones[14] = {
 zones[50] = {
     low = 30,
     high = 50,
-    continent = Eastern_Kingdoms,
     instances = {859},
     faction = "Contested",
     fishing_min = 130,
@@ -3218,7 +3166,6 @@ zones[50] = {
 zones[224] = {
     low = 30,
     high = 50,
-    continent = Eastern_Kingdoms,
     instances = {859},
     instanceCoords = { [859] = {61.9, 22.2} },
     faction = "Contested",
@@ -3231,7 +3178,6 @@ zones[224] = {
 zones[51] = {
     low = 36,
     high = 43,
-    continent = Eastern_Kingdoms,
     instances = {109},
     faction = "Contested",
     fishing_min = 130,
@@ -3243,7 +3189,6 @@ zones[51] = {
 zones[15] = {
     low = 36,
     high = 45,
-    continent = Eastern_Kingdoms,
     instances = {70},
     faction = "Contested",
     herbs = {"Wild Steelbloom", "Kingsblood", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Firebloom", "Purple Lotus"},
@@ -3254,7 +3199,6 @@ zones[15] = {
 zones[26] = {
     low = 41,
     high = 49,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     fishing_min = 205,
     herbs = {"Stranglekelp", "Liferoot", "Fadeleaf", "Goldthorn", "Khadgar's Whisker", "Purple Lotus", "Sungrass", "Ghost Mushroom", "Golden Sansam"},
@@ -3265,7 +3209,6 @@ zones[26] = {
 zones[22] = {
     low = 43,
     high = 57,
-    continent = Eastern_Kingdoms,
     instances = {1007},
     faction = "Contested",
     fishing_min = 205,
@@ -3277,7 +3220,6 @@ zones[22] = {
 zones[32] = {
     low = 43,
     high = 56,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     herbs = {"Firebloom"},
     nodes = {"Silver Vein", "Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Dark Iron Deposit", "Small Thorium Vein"},
@@ -3287,7 +3229,6 @@ zones[32] = {
 zones[17] = {
     low = 46,
     high = 60,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     herbs = {"Goldthorn", "Firebloom", "Sungrass", "Gromsblood"},
     nodes = {"Iron Deposit", "Gold Vein", "Mithril Deposit", "Truesilver Deposit", "Small Thorium Vein"},
@@ -3297,8 +3238,7 @@ zones[17] = {
 zones[36] = {
     low = 50,
     high = 59,
-    continent = Eastern_Kingdoms,
-    instances = {230, 229},
+    instances = {230, 229, 645},
     raids = {409, 469, 669},
     faction = "Contested",
     fishing_min = 330,
@@ -3310,7 +3250,6 @@ zones[36] = {
 zones[42] = {
     low = 50,
     high = MAX_LEVEL,
-    continent = Eastern_Kingdoms,
     raids = {532},
     faction = "Contested",
     fishing_min = 330,
@@ -3320,7 +3259,6 @@ zones[42] = {
 zones[23] = {
     low = 54,
     high = 59,
-    continent = Eastern_Kingdoms,
     instances = {329},
     faction = "Contested",
     fishing_min = 330,
@@ -3333,7 +3271,6 @@ zones[23] = {
 zones[80] = {
     low = 10,
     high = MAX_LEVEL,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 205,
 }
@@ -3342,7 +3279,6 @@ zones[80] = {
 zones[65] = {
     low = 15,
     high = 25,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 55,
     herbs = {"Mageroyal", "Bruiseweed", "Wild Steelbloom", "Kingsblood"},
@@ -3355,7 +3291,6 @@ zones[63] = {
     high = 30,
     instances = {48},
     battlegrounds = {489},
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 55,
     herbs = {"Mageroyal", "Briarthorn", "Stranglekelp", "Bruiseweed", "Wild Steelbloom", "Kingsblood", "Liferoot"},
@@ -3366,7 +3301,6 @@ zones[63] = {
 zones[64] = {
     low = 24,
     high = 35,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 130,
     herbs = {"Bruiseweed", "Wild Steelbloom", "Kingsblood"},
@@ -3377,7 +3311,6 @@ zones[64] = {
 zones[66] = {
     low = 30,
     high = 39,
-    continent = Kalimdor,
     instances = {349},
     faction = "Contested",
     fishing_min = 130,
@@ -3389,7 +3322,6 @@ zones[66] = {
 zones[70] = {
     low = 33,
     high = 50,
-    continent = Kalimdor,
     raids = {249},
     faction = "Contested",
     fishing_min = 130,
@@ -3401,7 +3333,6 @@ zones[70] = {
 zones[71] = {
     low = 40,
     high = 50,
-    continent = Kalimdor,
     instances = {209},
     complexes = {2367},
     raids = {967},
@@ -3415,7 +3346,6 @@ zones[71] = {
 zones[69] = {
     low = 41,
     high = 50,
-    continent = Kalimdor,
     complexes = {429},
     faction = "Contested",
     fishing_min = 205,
@@ -3427,7 +3357,6 @@ zones[69] = {
 zones[76] = {
     low = 42,
     high = 55,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 205,
     herbs = {"Stranglekelp", "Goldthorn", "Khadgar's Whisker", "Purple Lotus", "Sungrass", "Golden Sansam", "Mountain Silversage"},
@@ -3438,7 +3367,6 @@ zones[76] = {
 zones[77] = {
     low = 47,
     high = 54,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 205,
     herbs = {"Arthas' Tears", "Sungrass", "Gromsblood", "Golden Sansam", "Dreamfoil", "Mountain Silversage", "Plaguebloom"},
@@ -3449,7 +3377,6 @@ zones[77] = {
 zones[78] = {
     low = 48,
     high = 55,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 205,
     herbs = {"Sungrass", "Blindweed", "Golden Sansam", "Dreamfoil", "Mountain Silversage"},
@@ -3460,7 +3387,6 @@ zones[78] = {
 zones[81] = {
     low = 55,
     high = 59,
-    continent = Kalimdor,
     raids = {509, 531},
     faction = "Contested",
     fishing_min = 330,
@@ -3472,7 +3398,6 @@ zones[81] = {
 zones[83] = {
     low = 55,
     high = 60,
-    continent = Kalimdor,
     faction = "Contested",
     fishing_min = 330,
     herbs = {"Mountain Silversage", "Icecap", "Black Lotus"},
@@ -3484,7 +3409,6 @@ zones[83] = {
 zones[100] = {
     low = 58,
     high = 63,
-    continent = Outland,
     instances = {543, 542, 540},
     raids = {544},
     faction = "Contested",
@@ -3497,7 +3421,6 @@ zones[100] = {
 zones[102] = {
     low = 60,
     high = 64,
-    continent = Outland,
     instances = {546, 545, 547},
     raids = {548},
     faction = "Contested",
@@ -3510,7 +3433,6 @@ zones[102] = {
 zones[108] = {
     low = 62,
     high = 65,
-    continent = Outland,
     complexes = {3790},
     faction = "Contested",
     fishing_min = 355,
@@ -3522,7 +3444,6 @@ zones[108] = {
 zones[107] = {
     low = 64,
     high = 67,
-    continent = Outland,
     faction = "Contested",
     fishing_min = 380,
     herbs = {"Felweed", "Dreaming Glory", "Terocone"},
@@ -3533,7 +3454,6 @@ zones[107] = {
 zones[105] = {
     low = 65,
     high = 68,
-    continent = Outland,
     raids = {565},
     faction = "Contested",
     fishing_min = 355,
@@ -3545,7 +3465,6 @@ zones[105] = {
 zones[109] = {
     low = 67,
     high = 70,
-    continent = Outland,
     instances = {554, 553, 552},
     raids = {550},
     battlegrounds = {566},
@@ -3559,7 +3478,6 @@ zones[109] = {
 zones[104] = {
     low = 67,
     high = 70,
-    continent = Outland,
     raids = {564},
     faction = "Contested",
     fishing_min = 380,
@@ -3571,13 +3489,11 @@ zones[104] = {
 -- MoP: Northrend Zones (WotLK, retail uiMapIDs)
 -- ============================================================================
 
-local Northrend = "Northrend"
 
 -- Borean Tundra
 zones[114] = {
     low = 68,
     high = 72,
-    continent = Northrend,
     instances = {576, 578},
     raids = {616},
     faction = "Contested",
@@ -3590,7 +3506,6 @@ zones[114] = {
 zones[117] = {
     low = 68,
     high = 72,
-    continent = Northrend,
     instances = {574, 575},
     faction = "Contested",
     fishing_min = 380,
@@ -3602,7 +3517,6 @@ zones[117] = {
 zones[115] = {
     low = 71,
     high = 75,
-    continent = Northrend,
     instances = {601, 619},
     raids = {533, 615, 724},
     faction = "Contested",
@@ -3615,7 +3529,6 @@ zones[115] = {
 zones[116] = {
     low = 73,
     high = 75,
-    continent = Northrend,
     faction = "Contested",
     fishing_min = 405,
     herbs = {"Goldclover", "Tiger Lily", "Talandra's Rose"},
@@ -3626,7 +3539,6 @@ zones[116] = {
 zones[121] = {
     low = 74,
     high = 77,
-    continent = Northrend,
     instances = {600, 604},
     faction = "Contested",
     fishing_min = 430,
@@ -3638,7 +3550,6 @@ zones[121] = {
 zones[119] = {
     low = 76,
     high = 78,
-    continent = Northrend,
     faction = "Contested",
     fishing_min = 430,
     herbs = {"Goldclover", "Tiger Lily", "Adder's Tongue"},
@@ -3649,7 +3560,6 @@ zones[119] = {
 zones[120] = {
     low = 77,
     high = 80,
-    continent = Northrend,
     instances = {599, 602},
     raids = {603},
     faction = "Contested",
@@ -3662,8 +3572,9 @@ zones[120] = {
 zones[118] = {
     low = 77,
     high = 80,
-    continent = Northrend,
-    instances = {632, 658, 668},
+    -- 650 (Trial of the Champion) is at the Argent Tournament grounds up here, not in
+    -- Dalaran; its pin clusters with the Trial of the Crusader raid pin.
+    instances = {632, 658, 668, 650},
     raids = {631, 649},
     faction = "Contested",
     fishing_min = 455,
@@ -3675,7 +3586,10 @@ zones[118] = {
 zones[127] = {
     low = 77,
     high = 80,
-    continent = Northrend,
+    -- The Violet Hold is inside Dalaran, which floats above northern Crystalsong;
+    -- show it here at the city's position on this map.
+    instances = {608},
+    instanceCoords = { [608] = {28.2, 36.4} },
     faction = "Contested",
     fishing_min = 430,
     herbs = {"Goldclover", "Talandra's Rose"},
@@ -3686,7 +3600,6 @@ zones[127] = {
 zones[123] = {
     low = 77,
     high = 80,
-    continent = Northrend,
     raids = {624},
     faction = "Contested",
     fishing_min = 455,
@@ -3698,8 +3611,7 @@ zones[123] = {
 zones[125] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Northrend,
-    instances = {608, 650},
+    instances = {608},
     faction = "Contested",
     fishing_min = 430,
 }
@@ -3712,7 +3624,6 @@ zones[125] = {
 zones[198] = {
     low = 80,
     high = 82,
-    continent = Kalimdor,
     raids = {720},
     faction = "Contested",
     fishing_min = 480,
@@ -3725,7 +3636,6 @@ zones[198] = {
 zones[203] = {
     low = 80,
     high = 82,
-    continent = Eastern_Kingdoms,
     instances = {643},
     instanceCoords = { [643] = {49.3, 43.1} },
     faction = "Contested",
@@ -3738,7 +3648,6 @@ zones[203] = {
 zones[204] = {
     low = 80,
     high = 82,
-    continent = Eastern_Kingdoms,
     instances = {643},
     faction = "Contested",
     fishing_min = 480,
@@ -3750,7 +3659,6 @@ zones[204] = {
 zones[207] = {
     low = 82,
     high = 83,
-    continent = Eastern_Kingdoms,
     instances = {725},
     faction = "Contested",
     herbs = {"Heartblossom", "Cinderbloom"},
@@ -3761,7 +3669,6 @@ zones[207] = {
 zones[249] = {
     low = 83,
     high = 84,
-    continent = Kalimdor,
     instances = {755, 644, 657},
     raids = {754},
     faction = "Contested",
@@ -3774,8 +3681,7 @@ zones[249] = {
 zones[241] = {
     low = 84,
     high = 85,
-    continent = Eastern_Kingdoms,
-    instances = {670, 645},
+    instances = {670},
     raids = {671},
     faction = "Contested",
     fishing_min = 530,
@@ -3787,7 +3693,6 @@ zones[241] = {
 zones[245] = {
     low = 85,
     high = 85,
-    continent = Eastern_Kingdoms,
     faction = "Contested",
     fishing_min = 555,
     herbs = {"Whiptail", "Azshara's Veil"},
@@ -3798,7 +3703,6 @@ zones[245] = {
 zones[244] = {
     low = 85,
     high = 85,
-    continent = Eastern_Kingdoms,
     raids = {757},
     faction = "Contested",
     fishing_min = 555,
@@ -3810,7 +3714,6 @@ zones[244] = {
 zones[338] = {
     low = 85,
     high = 85,
-    continent = Kalimdor,
     faction = "Contested",
     herbs = {"Cinderbloom"},
     nodes = {"Elementium Vein", "Rich Elementium Vein", "Pyrite Deposit"},
@@ -3824,7 +3727,6 @@ zones[338] = {
 zones[85] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Kalimdor,
     instances = {389},
     faction = "Horde",
     fishing_min = 1,
@@ -3834,7 +3736,6 @@ zones[85] = {
 zones[88] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Kalimdor,
     faction = "Horde",
     fishing_min = 1,
 }
@@ -3843,7 +3744,6 @@ zones[88] = {
 zones[90] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Eastern_Kingdoms,
     faction = "Horde",
     fishing_min = 1,
 }
@@ -3852,7 +3752,6 @@ zones[90] = {
 zones[110] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Eastern_Kingdoms,
     faction = "Horde",
 }
 
@@ -3860,7 +3759,6 @@ zones[110] = {
 zones[89] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Kalimdor,
     faction = "Alliance",
     fishing_min = 1,
 }
@@ -3869,7 +3767,6 @@ zones[89] = {
 zones[87] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Eastern_Kingdoms,
     faction = "Alliance",
     fishing_min = 1,
 }
@@ -3878,7 +3775,6 @@ zones[87] = {
 zones[84] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Eastern_Kingdoms,
     instances = {34},
     faction = "Alliance",
     fishing_min = 1,
@@ -3888,7 +3784,6 @@ zones[84] = {
 zones[103] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Kalimdor,
     faction = "Alliance",
 }
 
@@ -3896,7 +3791,6 @@ zones[103] = {
 zones[111] = {
     low = 1,
     high = MAX_LEVEL,
-    continent = Outland,
     faction = "Contested",
 }
 
@@ -3908,7 +3802,6 @@ zones[111] = {
 zones[371] = {
     low = 85,
     high = 86,
-    continent = Pandaria,
     instances = {960},
     faction = "Contested",
     fishing_min = 650,
@@ -3920,7 +3813,6 @@ zones[371] = {
 zones[376] = {
     low = 86,
     high = 87,
-    continent = Pandaria,
     instances = {961},
     faction = "Contested",
     fishing_min = 700,
@@ -3932,7 +3824,6 @@ zones[376] = {
 zones[418] = {
     low = 86,
     high = 87,
-    continent = Pandaria,
     faction = "Contested",
     fishing_min = 700,
     herbs = {"Green Tea Leaf", "Silkweed", "Rain Poppy", "Golden Lotus"},
@@ -3943,7 +3834,6 @@ zones[418] = {
 zones[379] = {
     low = 87,
     high = 88,
-    continent = Pandaria,
     instances = {959},
     raids = {1008},
     faction = "Contested",
@@ -3956,7 +3846,6 @@ zones[379] = {
 zones[388] = {
     low = 88,
     high = 89,
-    continent = Pandaria,
     instances = {1011},
     faction = "Contested",
     fishing_min = 800,
@@ -3968,7 +3857,6 @@ zones[388] = {
 zones[422] = {
     low = 89,
     high = 90,
-    continent = Pandaria,
     instances = {962},
     raids = {1009},
     faction = "Contested",
@@ -3981,7 +3869,6 @@ zones[422] = {
 zones[390] = {
     low = 90,
     high = 90,
-    continent = Pandaria,
     instances = {994},
     raids = {1136},
     faction = "Contested",
@@ -3994,7 +3881,6 @@ zones[390] = {
 zones[433] = {
     low = 87,
     high = 90,
-    continent = Pandaria,
     raids = {996},
     faction = "Contested",
 }
@@ -4003,7 +3889,6 @@ zones[433] = {
 zones[504] = {
     low = 90,
     high = 90,
-    continent = Pandaria,
     raids = {1098},
     faction = "Contested",
     fishing_min = 825,
@@ -4015,7 +3900,6 @@ zones[504] = {
 zones[554] = {
     low = 90,
     high = 90,
-    continent = Pandaria,
     faction = "Contested",
     fishing_min = 825,
 }
@@ -4028,7 +3912,6 @@ zones[554] = {
 instances[960] = {
     low = 85,
     high = 90,
-    continent = Pandaria,
     entrance = {56.8, 58.2},
 }
 
@@ -4036,7 +3919,6 @@ instances[960] = {
 instances[961] = {
     low = 86,
     high = 90,
-    continent = Pandaria,
     entrance = {36.1, 69.1},
 }
 
@@ -4044,23 +3926,23 @@ instances[961] = {
 instances[959] = {
     low = 87,
     high = 90,
-    continent = Pandaria,
     entrance = {36.8, 47.5},
 }
 
 -- Gate of the Setting Sun
+-- The portal sits atop the Serpent's Spine, which maps to Vale of Eternal Blossoms
+-- (15.8, 74.4), not to Dread Wastes -- the zone that lists this dungeon. Pin the
+-- Dread Wastes approach instead: the gate/rope up the wall at (75, 21).
 instances[962] = {
     low = 90,
     high = 90,
-    continent = Pandaria,
-    entrance = {15.8, 74.3},
+    entrance = {75.0, 21.0},
 }
 
 -- Mogu'shan Palace
 instances[994] = {
     low = 87,
     high = 90,
-    continent = Pandaria,
     entrance = {80.7, 32.8},
 }
 
@@ -4068,7 +3950,6 @@ instances[994] = {
 instances[1011] = {
     low = 90,
     high = 90,
-    continent = Pandaria,
     entrance = {34.6, 81.4},
 }
 
@@ -4076,7 +3957,6 @@ instances[1011] = {
 instances[1001] = {
     low = 26,
     high = 90,
-    continent = Eastern_Kingdoms,
     entrance = {84.3, 30.6},
 }
 
@@ -4084,7 +3964,6 @@ instances[1001] = {
 instances[1004] = {
     low = 28,
     high = 90,
-    continent = Eastern_Kingdoms,
     entrance = {85.3, 30.6},
 }
 
@@ -4092,7 +3971,6 @@ instances[1004] = {
 instances[1007] = {
     low = 38,
     high = 90,
-    continent = Eastern_Kingdoms,
     entrance = {69, 73},
 }
 
@@ -4104,7 +3982,6 @@ instances[1007] = {
 instances[574] = {
     low = 69,
     high = 72,
-    continent = Northrend,
     entrance = {57.3, 46.7},
 }
 
@@ -4112,7 +3989,6 @@ instances[574] = {
 instances[576] = {
     low = 69,
     high = 73,
-    continent = Northrend,
     entrance = {27.5, 26.0},
 }
 
@@ -4120,7 +3996,6 @@ instances[576] = {
 instances[601] = {
     low = 72,
     high = 74,
-    continent = Northrend,
     entrance = {26.0, 50.8},
 }
 
@@ -4128,7 +4003,6 @@ instances[601] = {
 instances[619] = {
     low = 73,
     high = 75,
-    continent = Northrend,
     entrance = {28.5, 51.5},
 }
 
@@ -4136,7 +4010,6 @@ instances[619] = {
 instances[600] = {
     low = 74,
     high = 76,
-    continent = Northrend,
     entrance = {28.6, 86.8},
 }
 
@@ -4144,7 +4017,6 @@ instances[600] = {
 instances[608] = {
     low = 75,
     high = 77,
-    continent = Northrend,
     entrance = {66.8, 68.2},
 }
 
@@ -4152,7 +4024,6 @@ instances[608] = {
 instances[604] = {
     low = 76,
     high = 78,
-    continent = Northrend,
     entrance = {76.1, 20.7},
 }
 
@@ -4160,7 +4031,6 @@ instances[604] = {
 instances[599] = {
     low = 77,
     high = 79,
-    continent = Northrend,
     entrance = {39.5, 26.9},
 }
 
@@ -4168,7 +4038,6 @@ instances[599] = {
 instances[602] = {
     low = 79,
     high = 80,
-    continent = Northrend,
     entrance = {45.4, 21.4},
 }
 
@@ -4176,7 +4045,6 @@ instances[602] = {
 instances[578] = {
     low = 79,
     high = 80,
-    continent = Northrend,
     entrance = {27.5, 27.0},
 }
 
@@ -4184,7 +4052,6 @@ instances[578] = {
 instances[575] = {
     low = 79,
     high = 80,
-    continent = Northrend,
     entrance = {57.3, 46.5},
 }
 
@@ -4192,7 +4059,6 @@ instances[575] = {
 instances[595] = {
     low = 79,
     high = 80,
-    continent = Kalimdor,
     entrance = {66.0, 49.0},
 }
 
@@ -4200,7 +4066,6 @@ instances[595] = {
 instances[650] = {
     low = 80,
     high = 80,
-    continent = Northrend,
     entrance = {74.2, 20.5},
 }
 
@@ -4208,7 +4073,6 @@ instances[650] = {
 instances[632] = {
     low = 80,
     high = 80,
-    continent = Northrend,
     entrance = {52.6, 89.4},
 }
 
@@ -4216,7 +4080,6 @@ instances[632] = {
 instances[658] = {
     low = 80,
     high = 80,
-    continent = Northrend,
     entrance = {52.6, 89.2},
 }
 
@@ -4224,7 +4087,6 @@ instances[658] = {
 instances[668] = {
     low = 80,
     high = 80,
-    continent = Northrend,
     entrance = {52.6, 89.0},
 }
 
@@ -4233,18 +4095,18 @@ instances[668] = {
 -- ============================================================================
 
 -- Blackrock Caverns
+-- Entrance is inside Blackrock Mountain, so it lives in Burning Steppes with the
+-- other BRM content (not Twilight Highlands); the pin joins the BRM cluster there.
 instances[645] = {
     low = 80,
     high = 85,
-    continent = Eastern_Kingdoms,
-    entrance = {66.4, 62.0},
+    entrance = {29.0, 37.0},
 }
 
 -- Throne of the Tides
 instances[643] = {
     low = 80,
     high = 85,
-    continent = Eastern_Kingdoms,
     entrance = {69.4, 25.4},  -- on the Abyssal Depths (204) map, where the portal is
 }
 
@@ -4252,7 +4114,6 @@ instances[643] = {
 instances[725] = {
     low = 82,
     high = 85,
-    continent = Eastern_Kingdoms,
     entrance = {47.7, 52.0},
 }
 
@@ -4260,7 +4121,6 @@ instances[725] = {
 instances[657] = {
     low = 82,
     high = 85,
-    continent = Kalimdor,
     entrance = {76.5, 84.3},
 }
 
@@ -4268,7 +4128,6 @@ instances[657] = {
 instances[755] = {
     low = 83,
     high = 85,
-    continent = Kalimdor,
     entrance = {60.5, 64.2},
 }
 
@@ -4276,7 +4135,6 @@ instances[755] = {
 instances[644] = {
     low = 83,
     high = 85,
-    continent = Kalimdor,
     entrance = {71.7, 52.1},
 }
 
@@ -4284,7 +4142,6 @@ instances[644] = {
 instances[670] = {
     low = 84,
     high = 85,
-    continent = Eastern_Kingdoms,
     entrance = {19.1, 53.8},
 }
 
@@ -4292,7 +4149,6 @@ instances[670] = {
 instances[568] = {
     low = 85,
     high = 85,
-    continent = Eastern_Kingdoms,
     entrance = {81.8, 64.3},
 }
 
@@ -4300,7 +4156,6 @@ instances[568] = {
 instances[859] = {
     low = 85,
     high = 85,
-    continent = Eastern_Kingdoms,
     entrance = {68.4, 32.9},
 }
 
@@ -4308,7 +4163,6 @@ instances[859] = {
 instances[938] = {
     low = 85,
     high = 85,
-    continent = Kalimdor,
     entrance = {66.0, 49.0},
 }
 
@@ -4316,7 +4170,6 @@ instances[938] = {
 instances[939] = {
     low = 85,
     high = 85,
-    continent = Kalimdor,
     entrance = {66.0, 49.0},
 }
 
@@ -4324,7 +4177,6 @@ instances[939] = {
 instances[940] = {
     low = 85,
     high = 85,
-    continent = Kalimdor,
     entrance = {66.0, 49.0},
 }
 
@@ -4337,7 +4189,6 @@ raids[533] = {
     low = 80,
     high = 80,
     players = "10/25",
-    continent = Northrend,
     entrance = {87.3, 51.0},
 }
 
@@ -4346,7 +4197,6 @@ raids[615] = {
     low = 80,
     high = 80,
     players = "10/25",
-    continent = Northrend,
     entrance = {60.0, 57.0},
 }
 
@@ -4355,7 +4205,6 @@ raids[616] = {
     low = 80,
     high = 80,
     players = "10/25",
-    continent = Northrend,
     entrance = {27.5, 26.0},
 }
 
@@ -4364,7 +4213,6 @@ raids[603] = {
     low = 80,
     high = 80,
     players = "10/25",
-    continent = Northrend,
     entrance = {41.6, 17.8},
 }
 
@@ -4373,7 +4221,6 @@ raids[649] = {
     low = 80,
     high = 80,
     players = "10/25",
-    continent = Northrend,
     entrance = {75.1, 21.8},
 }
 
@@ -4382,7 +4229,6 @@ raids[624] = {
     low = 80,
     high = 80,
     players = "10/25",
-    continent = Northrend,
     entrance = {50.0, 11.4},
 }
 
@@ -4391,7 +4237,6 @@ raids[631] = {
     low = 80,
     high = 80,
     players = "10/25",
-    continent = Northrend,
     entrance = {53.9, 87.3},
 }
 
@@ -4400,7 +4245,6 @@ raids[724] = {
     low = 80,
     high = 80,
     players = "10/25",
-    continent = Northrend,
     entrance = {60.0, 57.0},
 }
 
@@ -4413,7 +4257,6 @@ raids[669] = {
     low = 85,
     high = 85,
     players = "10/25",
-    continent = Eastern_Kingdoms,
     entrance = {29.0, 35.0},
 }
 
@@ -4422,7 +4265,6 @@ raids[671] = {
     low = 85,
     high = 85,
     players = "10/25",
-    continent = Eastern_Kingdoms,
     entrance = {33.8, 78.2},
 }
 
@@ -4431,7 +4273,6 @@ raids[754] = {
     low = 85,
     high = 85,
     players = "10/25",
-    continent = Kalimdor,
     entrance = {38.4, 80.6},
 }
 
@@ -4440,7 +4281,6 @@ raids[720] = {
     low = 85,
     high = 85,
     players = "10/25",
-    continent = Kalimdor,
     entrance = {47.3, 78.3},
 }
 
@@ -4449,7 +4289,6 @@ raids[967] = {
     low = 85,
     high = 85,
     players = "10/25",
-    continent = Kalimdor,
     entrance = {66.0, 49.0},
 }
 
@@ -4458,7 +4297,6 @@ raids[757] = {
     low = 85,
     high = 85,
     players = "10/25",
-    continent = Eastern_Kingdoms,
     entrance = {46.3, 47.5},
 }
 
@@ -4511,7 +4349,6 @@ raids[1008] = {
     low = 90,
     high = 90,
     players = "10/25",
-    continent = Pandaria,
     entrance = {59.6, 39.2},
 }
 
@@ -4520,7 +4357,6 @@ raids[1009] = {
     low = 90,
     high = 90,
     players = "10/25",
-    continent = Pandaria,
     entrance = {39.0, 35.0},
 }
 
@@ -4529,7 +4365,6 @@ raids[996] = {
     low = 90,
     high = 90,
     players = "10/25",
-    continent = Pandaria,
     entrance = {47.9, 61.3},
 }
 
@@ -4538,7 +4373,6 @@ raids[1098] = {
     low = 90,
     high = 90,
     players = "10/25",
-    continent = Pandaria,
     entrance = {63.5, 32.2},
 }
 
@@ -4547,7 +4381,6 @@ raids[1136] = {
     low = 90,
     high = 90,
     players = "10/25",
-    continent = Pandaria,
     entrance = {74.0, 42.2},
 }
 
@@ -4787,9 +4620,9 @@ end -- if isMoP or isCata
 -- so both Tanaris zones (1446 pre-MoP, 71 on MoP) exist. Both already reference complex
 -- 2367 statically; on Era complexes[2367] is left undefined, which the render loops skip.
 if isTBC or isWrath or isMoP then
-    instances[L["Old Hillsbrad Foothills"]] = { low = 66, high = 70, continent = Kalimdor, entrance = {66, 49} }
-    instances[L["The Black Morass"]]        = { low = 69, high = 70, continent = Kalimdor, entrance = {66, 49} }
-    raids[L["Hyjal Summit"]]                = { low = 70, high = 70, players = 25, continent = Kalimdor, entrance = {66, 49} }
+    instances[L["Old Hillsbrad Foothills"]] = { low = 66, high = 70, entrance = {66, 49} }
+    instances[L["The Black Morass"]]        = { low = 69, high = 70, entrance = {66, 49} }
+    raids[L["Hyjal Summit"]]                = { low = 70, high = 70, players = 25, entrance = {66, 49} }
     complexes[2367] = { instances = { L["Old Hillsbrad Foothills"], L["The Black Morass"], 595, 938, 939, 940 } }
 
     -- Hyjal Summit shares the Caverns of Time entrance; attach it to whichever Tanaris

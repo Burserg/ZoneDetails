@@ -1,7 +1,7 @@
 ## Interface: 30405, 38001
 ## Title: ZoneDetails
 ## Author: Burserg
-## Version: 2.1.7
+## Version: 2.1.8
 ## Notes: Zone details overlay for the World Map
 ## OptionalDeps: LibStub, CallbackHandler-1.0
 ## SavedVariables: ZoneDetailsDB
@@ -16,7 +16,6 @@ Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
 
 Libs\AceAddon-3.0\AceAddon-3.0.xml
 Libs\AceEvent-3.0\AceEvent-3.0.xml
-Libs\AceHook-3.0\AceHook-3.0.xml
 Libs\AceDB-3.0\AceDB-3.0.xml
 
 Libs\AceConsole-3.0\AceConsole-3.0.xml
