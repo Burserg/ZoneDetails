@@ -89,6 +89,20 @@ local defaults = {
 
         -- Profession Text Map Options
         profTextFontSize = 32,
+
+        -- Map Enhancements
+        revealUnexplored = true,
+        tintUnexplored = true,
+        tintRed = 0.6,
+        tintGreen = 0.6,
+        tintBlue = 1.0,
+        tintAlpha = 1.0,
+        windowedMap = true,
+        mapScale = 1.0,
+        mapPosA = "CENTER",
+        mapPosR = "CENTER",
+        mapPosX = 0,
+        mapPosY = 0,
     }
 }
 
@@ -281,6 +295,94 @@ local options = {
                     max = 64,
                     step = 1,
                     width = "full",
+                },
+            }
+        },
+        mapEnhancements = {
+            type = "group",
+            name = L["Map Enhancements"],
+            desc = L["Fog of war reveal and a resizable windowed map"],
+            order = 3,
+            args = {
+                revealHeader = {
+                    type = "header",
+                    name = L["Fog of War"],
+                    order = 0,
+                },
+                revealUnexplored = {
+                    type = "toggle",
+                    order = 1,
+                    name = L["Reveal Unexplored Areas"],
+                    arg = "revealUnexplored",
+                    desc = L["Shows unexplored areas of the map using the game's own map art."],
+                    width = "full",
+                    set = function(_, v)
+                        db.revealUnexplored = v
+                        ZoneDetails:RefreshReveal()
+                    end,
+                },
+                tintUnexplored = {
+                    type = "toggle",
+                    order = 2,
+                    name = L["Tint Unexplored Areas"],
+                    arg = "tintUnexplored",
+                    desc = L["Applies a tint to unexplored areas so they stand out from explored ones."],
+                    width = "full",
+                    disabled = function() return not db.revealUnexplored end,
+                    set = function(_, v)
+                        db.tintUnexplored = v
+                        ZoneDetails:RefreshReveal()
+                    end,
+                },
+                tintColor = {
+                    type = "color",
+                    order = 3,
+                    name = L["Tint Color"],
+                    desc = L["The color and opacity applied to unexplored areas."],
+                    hasAlpha = true,
+                    disabled = function() return not (db.revealUnexplored and db.tintUnexplored) end,
+                    get = function() return db.tintRed, db.tintGreen, db.tintBlue, db.tintAlpha end,
+                    set = function(_, r, g, b, a)
+                        db.tintRed, db.tintGreen, db.tintBlue, db.tintAlpha = r, g, b, a
+                        ZoneDetails:RefreshReveal()
+                    end,
+                },
+                windowHeader = {
+                    type = "header",
+                    name = L["Map Window"],
+                    order = 10,
+                },
+                windowedMap = {
+                    type = "toggle",
+                    order = 11,
+                    name = L["Replace Full-Screen Map"],
+                    arg = "windowedMap",
+                    desc = L["Keeps the World Map windowed instead of full-screen. Drag the map border to move it and drag the grip in the bottom-right corner to resize it."],
+                    width = "full",
+                    set = function(_, v)
+                        db.windowedMap = v
+                        if v then
+                            ZoneDetails:ApplyWindowedMap()
+                        else
+                            ZoneDetails:RestoreDefaultMap()
+                        end
+                    end,
+                },
+                mapScale = {
+                    type = "range",
+                    order = 12,
+                    name = L["Map Scale"],
+                    arg = "mapScale",
+                    desc = L["Adjusts the size of the windowed map."],
+                    min = 0.5,
+                    max = 2.0,
+                    step = 0.05,
+                    width = "full",
+                    disabled = function() return not db.windowedMap end,
+                    set = function(_, v)
+                        db.mapScale = v
+                        ZoneDetails:ApplyMapScale()
+                    end,
                 },
             }
         },
@@ -633,12 +735,530 @@ function ZoneDetailsGlobalPinMixin:OnMouseUp(btn)
 end
 
 -- ============================================================================
+-- Map Enhancements: Fog-of-War Reveal
+-- ============================================================================
+
+-- Data/Reveal_*.lua (generated per client from the WorldMapOverlay DB2 tables)
+-- maps each map ART id to the unexplored-overlay geometry ("W:H:X:Y") and its
+-- tile fileDataIDs. We post-hook Blizzard's MapExplorationPin:RefreshOverlays
+-- and re-run Blizzard's own tiling algorithm for every overlay the API does
+-- NOT report as explored, drawing one texture sublevel below the real explored
+-- art so actual exploration always wins. Textures are acquired from the pin's
+-- own pool, so Blizzard's ReleaseAll cleans them up on every refresh; when the
+-- player explores an area, MAP_EXPLORATION_UPDATED redraws it as real explored
+-- art and our stand-in for that key simply isn't recreated.
+
+local revealData          -- ZoneDetails_RevealData, captured when the hook installs
+local explorationPins = {}  -- hooked MapExplorationPin instances (normally one)
+
+local function RefreshRevealOverlays(pin, fullUpdate)
+    -- The texture pool is shared with Blizzard's explored overlays and its
+    -- default reset never touches vertex color. Blizzard just released and
+    -- re-acquired its explored textures, so scrub any tint a recycled texture
+    -- may carry from our previous pass before drawing anything.
+    if pin.overlayTexturePool and pin.overlayTexturePool.EnumerateActive then
+        for texture in pin.overlayTexturePool:EnumerateActive() do
+            texture:SetVertexColor(1, 1, 1)
+            texture:SetAlpha(1)
+        end
+    end
+    if not (db and db.revealUnexplored) then return end
+    if not ZoneDetails:IsEnabled() then return end
+    local mapID = WorldMapFrame:GetMapID()
+    if not mapID then return end
+    local artID = C_Map.GetMapArtID(mapID)
+    local zoneData = artID and revealData[artID]
+    if not zoneData then return end
+
+    -- Overlays the player has actually explored, keyed by geometry.
+    local explored = {}
+    local exploredTextures = C_MapExplorationInfo.GetExploredMapTextures(mapID)
+    if exploredTextures then
+        for _, info in ipairs(exploredTextures) do
+            explored[info.textureWidth .. ":" .. info.textureHeight .. ":"
+                .. info.offsetX .. ":" .. info.offsetY] = true
+        end
+    end
+
+    local layers = C_Map.GetMapArtLayers(mapID)
+    local layerInfo = layers and layers[pin:GetMap():GetCanvasContainer():GetCurrentLayerIndex()]
+    if not layerInfo then return end
+    local tileW, tileH = layerInfo.tileWidth, layerInfo.tileHeight
+
+    local tint = db.tintUnexplored
+    local r, g, b, a = db.tintRed, db.tintGreen, db.tintBlue, db.tintAlpha
+
+    for key, files in pairs(zoneData) do
+        if not explored[key] then
+            local width, height, offsetX, offsetY = strsplit(":", key)
+            width, height, offsetX, offsetY =
+                tonumber(width), tonumber(height), tonumber(offsetX), tonumber(offsetY)
+            local fileIDs = { strsplit(",", files) }
+            local wide, tall = math.ceil(width / tileW), math.ceil(height / tileH)
+            -- Blizzard's tiling: interior tiles are full tile size; the last tile in
+            -- each row/column has the remainder as its pixel size but its file is the
+            -- next power of two, so the texcoords crop the padding.
+            for j = 1, tall do
+                local pixelH, fileH
+                if j < tall then
+                    pixelH, fileH = tileH, tileH
+                else
+                    pixelH = height % tileH
+                    if pixelH == 0 then pixelH = tileH end
+                    fileH = 16
+                    while fileH < pixelH do fileH = fileH * 2 end
+                end
+                for k = 1, wide do
+                    local pixelW, fileW
+                    if k < wide then
+                        pixelW, fileW = tileW, tileW
+                    else
+                        pixelW = width % tileW
+                        if pixelW == 0 then pixelW = tileW end
+                        fileW = 16
+                        while fileW < pixelW do fileW = fileW * 2 end
+                    end
+                    local texture = pin.overlayTexturePool:Acquire()
+                    texture:SetSize(pixelW, pixelH)
+                    texture:SetTexCoord(0, pixelW / fileW, 0, pixelH / fileH)
+                    texture:SetPoint("TOPLEFT", offsetX + tileW * (k - 1), -(offsetY + tileH * (j - 1)))
+                    texture:SetTexture(tonumber(fileIDs[(j - 1) * wide + k]), nil, nil, "TRILINEAR")
+                    texture:SetDrawLayer("ARTWORK", -1)
+                    if tint then
+                        texture:SetVertexColor(r, g, b, a)
+                    end
+                    texture:Show()
+                    if fullUpdate then
+                        pin.textureLoadGroup:AddTexture(texture)
+                    end
+                end
+            end
+        end
+    end
+end
+
+function ZoneDetails:SetupMapReveal()
+    if #explorationPins > 0 then return end
+    if type(ZoneDetails_RevealData) ~= "table" then return end  -- no data file on this client
+    if not (C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures) then return end
+    if not WorldMapFrame.EnumeratePinsByTemplate then return end
+    revealData = ZoneDetails_RevealData
+    for pin in WorldMapFrame:EnumeratePinsByTemplate("MapExplorationPinTemplate") do
+        if pin.RefreshOverlays and pin.overlayTexturePool then
+            hooksecurefunc(pin, "RefreshOverlays", RefreshRevealOverlays)
+            explorationPins[#explorationPins + 1] = pin
+        end
+    end
+end
+
+-- Redraw the exploration overlays now (reveal/tint option changes).
+function ZoneDetails:RefreshReveal()
+    if not WorldMapFrame:IsShown() then return end
+    for _, pin in ipairs(explorationPins) do
+        pin:RefreshOverlays(true)
+    end
+end
+
+-- ============================================================================
+-- Map Enhancements: Windowed (Resizable) Map
+-- ============================================================================
+
+-- Replaces the full-screen map with a movable, resizable window built on the
+-- map's MAXIMIZED layout: the maximized frame has the proper full border art
+-- (the enlarged mini-window layout stretches its small border textures), and
+-- on quest-log clients (Wrath+/MoP) Blizzard's own quest-log panel docks into
+-- the maximized frame, so the built-in quest log keeps working natively. What
+-- makes it a "window" instead of full-screen: the frame is taken OUT of
+-- UIPanel management entirely (half-managing it misplaces it off-screen on
+-- quest-log clients), its position is owned by the addon, the full-screen
+-- blackout is defanged, ESC closes it via UISpecialFrames, and a user scale
+-- with a drag grip sizes it. Setup runs from PLAYER_ENTERING_WORLD, not addon
+-- load: parts of the map frame aren't ready earlier on every client.
+
+local windowedHooked = false
+local scaleGrip
+local savedPanel  -- UIPanel attributes / frame state before we changed them
+
+local function ApplyMapScaleValue()
+    WorldMapFrame:SetScale((db and db.windowedMap and db.mapScale) or 1)
+end
+
+-- OnFrameSizeChanged is part of the newer map API family; guard it like the
+-- Maximize/Minimize hooks so older clients can't error on a missing method.
+local function MapFrameSizeChanged()
+    if WorldMapFrame.OnFrameSizeChanged then
+        WorldMapFrame:OnFrameSizeChanged()
+    end
+end
+
+function ZoneDetails:ApplyMapScale()
+    ApplyMapScaleValue()
+    MapFrameSizeChanged()
+end
+
+-- We own the windowed map's position: persist it in the profile and re-apply
+-- it after every display sync, which would otherwise re-anchor the frame.
+local function SaveMapPosition()
+    local a, _, r, x, y = WorldMapFrame:GetPoint()
+    if a then
+        db.mapPosA, db.mapPosR, db.mapPosX, db.mapPosY = a, r, x, y
+    end
+end
+
+local function ApplyMapPosition()
+    if not (db and db.windowedMap) then return end
+    WorldMapFrame:ClearAllPoints()
+    WorldMapFrame:SetPoint(db.mapPosA or "CENTER", UIParent, db.mapPosR or "CENTER",
+        db.mapPosX or 0, db.mapPosY or 0)
+end
+
+-- A bad saved position (or one from a different resolution/scale) must never
+-- leave the map stranded off-screen: recenter when most of the frame sits
+-- outside the visible area.
+local function ResetPositionIfOffScreen()
+    local left, bottom, width, height = WorldMapFrame:GetRect()
+    if not left then return end
+    local eff = WorldMapFrame:GetEffectiveScale()
+    local screenW = UIParent:GetWidth() * UIParent:GetEffectiveScale() / eff
+    local screenH = UIParent:GetHeight() * UIParent:GetEffectiveScale() / eff
+    if left + width < 60 or left > screenW - 60 or bottom + height < 60 or bottom > screenH - 60 then
+        db.mapPosA, db.mapPosR, db.mapPosX, db.mapPosY = "CENTER", "CENTER", 0, 0
+        ApplyMapPosition()
+    end
+end
+
+-- Dragging the grip rescales the whole frame (the map art fixes the aspect
+-- ratio) while keeping the top-left corner visually pinned. All math is done
+-- in raw screen pixels to avoid mixing scaled coordinate spaces.
+local function CreateScaleGrip()
+    scaleGrip = CreateFrame("Button", nil, WorldMapFrame)
+    scaleGrip:SetSize(24, 24)
+    scaleGrip:SetPoint("BOTTOMRIGHT", -4, 4)
+    scaleGrip:SetFrameStrata("FULLSCREEN_DIALOG")
+    scaleGrip:SetNormalTexture([[Interface\ChatFrame\UI-ChatIM-SizeGrabber-Up]])
+    scaleGrip:SetHighlightTexture([[Interface\ChatFrame\UI-ChatIM-SizeGrabber-Down]])
+
+    local startDist, startScale, pinLeftPx, pinTopPx
+    local function CursorDistanceFromTopLeft()
+        local x, y = GetCursorPosition()
+        local dx = x - pinLeftPx
+        local dy = pinTopPx - y
+        return math.max(math.sqrt(dx * dx + dy * dy), 1)
+    end
+
+    scaleGrip:SetScript("OnMouseDown", function(self)
+        local eff = WorldMapFrame:GetEffectiveScale()
+        pinLeftPx, pinTopPx = WorldMapFrame:GetLeft() * eff, WorldMapFrame:GetTop() * eff
+        startScale = WorldMapFrame:GetScale()
+        startDist = CursorDistanceFromTopLeft()
+        self:SetScript("OnUpdate", function()
+            local scale = CursorDistanceFromTopLeft() / startDist * startScale
+            if scale < 0.5 then scale = 0.5 elseif scale > 2 then scale = 2 end
+            db.mapScale = scale
+            WorldMapFrame:SetScale(scale)
+            -- SetPoint offsets are in the frame's own scaled space: divide the pixel
+            -- position by the new effective scale to keep TOPLEFT visually fixed.
+            local newEff = WorldMapFrame:GetEffectiveScale()
+            WorldMapFrame:ClearAllPoints()
+            WorldMapFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", pinLeftPx / newEff, pinTopPx / newEff)
+        end)
+    end)
+    scaleGrip:SetScript("OnMouseUp", function(self)
+        self:SetScript("OnUpdate", nil)
+        SaveMapPosition()
+        MapFrameSizeChanged()
+    end)
+    scaleGrip:SetScript("OnHide", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+end
+
+function ZoneDetails:ApplyWindowedMap()
+    if not (db and db.windowedMap) then return end
+
+    -- One-time setup FIRST: the rollback snapshot must be taken before any of
+    -- the mutations below (notably the miniWorldMap CVar) touch the state.
+    if not windowedHooked then
+        windowedHooked = true
+
+        -- Capture the frame state we change, for live rollback.
+        savedPanel = {
+            area = WorldMapFrame:GetAttribute("UIPanelLayout-area"),
+            enabled = WorldMapFrame:GetAttribute("UIPanelLayout-enabled"),
+            allowOther = WorldMapFrame:GetAttribute("UIPanelLayout-allowOtherPanels"),
+            defined = WorldMapFrame:GetAttribute("UIPanelLayout-defined"),
+            clamped = WorldMapFrame:IsClampedToScreen(),
+            miniWorldMap = GetCVar("miniWorldMap"),
+            strata = WorldMapFrame:GetFrameStrata(),
+            ignoreScale = not WorldMapFrame.IsIgnoringParentScale
+                or WorldMapFrame:IsIgnoringParentScale(),
+            containerIgnoreScale = not WorldMapFrame.ScrollContainer.IsIgnoringParentScale
+                or WorldMapFrame.ScrollContainer:IsIgnoringParentScale(),
+        }
+
+        -- The mode is fixed (maximized layout as a window): the whole
+        -- maximize/minimize toggle is hidden while the feature is on.
+        local mmf = WorldMapFrame.MaximizeMinimizeFrame
+        if mmf then
+            hooksecurefunc(mmf, "Show", function(frame)
+                if db and db.windowedMap then frame:Hide() end
+            end)
+        end
+        -- The maximized layout normally blacks out the rest of the screen;
+        -- a window must not.
+        if WorldMapFrame.BlackoutFrame then
+            hooksecurefunc(WorldMapFrame.BlackoutFrame, "Show", function(frame)
+                if db and db.windowedMap then frame:Hide() end
+            end)
+        end
+        -- Blizzard re-syncs size/mode/anchors/strata on show and on
+        -- display-size changes; re-apply our scale, position, and strata each
+        -- time (all no-op when the feature is off).
+        if type(WorldMapFrame.SynchronizeDisplayState) == "function" then
+            hooksecurefunc(WorldMapFrame, "SynchronizeDisplayState", function()
+                if db and db.windowedMap then
+                    -- MoP raises the maximized map to FULLSCREEN; a window
+                    -- should interleave with other UI instead.
+                    WorldMapFrame:SetFrameStrata("HIGH")
+                end
+                ApplyMapScaleValue()
+                ApplyMapPosition()
+            end)
+        end
+        if type(WorldMapFrame.OnFrameSizeChanged) == "function" then
+            hooksecurefunc(WorldMapFrame, "OnFrameSizeChanged", ApplyMapPosition)
+        end
+        -- Blizzard's map cursor math reads raw pixels and assumes an effective
+        -- scale of exactly 1; divide by the actual effective scale instead.
+        -- This is the correct general form (identical result at scale 1), so it
+        -- is safe to leave installed even when the feature is toggled off.
+        -- Intentionally computed from scratch rather than wrapping the current
+        -- function, so another map addon installing the same fix can't stack a
+        -- double correction.
+        WorldMapFrame.ScrollContainer.GetCursorPosition = function()
+            local x, y = GetCursorPosition()
+            local s = WorldMapFrame:GetEffectiveScale()
+            return x / s, y / s
+        end
+        -- Drag the map by its border/title area to move it (the canvas itself
+        -- keeps its own pan handlers). HookScript, not SetScript: don't clobber
+        -- any native drag handler a client flavor might define.
+        WorldMapFrame:SetMovable(true)
+        WorldMapFrame:RegisterForDrag("LeftButton")
+        WorldMapFrame:HookScript("OnDragStart", function(frame)
+            if db and db.windowedMap then
+                frame:StartMoving()
+            end
+        end)
+        WorldMapFrame:HookScript("OnDragStop", function(frame)
+            frame:StopMovingOrSizing()  -- harmless no-op when no move started
+            frame:SetUserPlaced(false)  -- position persists via the profile, not layout-cache
+            if db and db.windowedMap then
+                SaveMapPosition()
+                ApplyMapPosition()
+            end
+        end)
+        CreateScaleGrip()
+    end
+
+    -- Our window is the MAXIMIZED layout: full border art (the enlarged mini
+    -- layout stretches its small border textures) and native quest-log docking
+    -- on the clients that have it. Blizzard's own OnShow self-heal keeps the
+    -- mode maximized once the CVar says so.
+    SetCVar("miniWorldMap", 0)
+    -- If the map is open and windowed right now, raise it through Blizzard's
+    -- own button path (also flips the button visuals correctly); when the map
+    -- is closed, Blizzard's own OnShow self-heal reads the CVar instead. The
+    -- panel manager blocks insecure show/hide in combat, so retry after combat.
+    if WorldMapFrame:IsShown() and not WorldMapFrame:IsMaximized()
+        and WorldMapFrame.MaximizeMinimizeFrame
+        and WorldMapFrame.MaximizeMinimizeFrame.Maximize then
+        if InCombatLockdown() then
+            self:RegisterEvent("PLAYER_REGEN_ENABLED")
+        else
+            WorldMapFrame.MaximizeMinimizeFrame:Maximize()
+        end
+    end
+    if WorldMapFrame.MaximizeMinimizeFrame then
+        WorldMapFrame.MaximizeMinimizeFrame:Hide()
+    end
+    if WorldMapFrame.BlackoutFrame then
+        WorldMapFrame.BlackoutFrame:Hide()
+        WorldMapFrame.BlackoutFrame:EnableMouse(false)
+    end
+    WorldMapFrame:SetFrameStrata("HIGH")
+
+    -- Take the frame out of UIPanel management and own its position. On the
+    -- quest-log clients the display-state machine positions managed panels
+    -- itself, and a half-managed frame ends up off-screen; full ownership is
+    -- required. ESC still closes the map via UISpecialFrames.
+    WorldMapFrame:SetAttribute("UIPanelLayout-area", nil)
+    WorldMapFrame:SetAttribute("UIPanelLayout-enabled", false)
+    WorldMapFrame:SetAttribute("UIPanelLayout-allowOtherPanels", true)
+    -- Mark the attributes as authoritative so the panel manager can't lazily
+    -- repopulate them from UIPanelWindows and re-manage the frame later. With
+    -- defined=true Blizzard reads maximizePoint from the attribute too (its
+    -- maximized sync ends in MaximizeUIPanel -> SetPoint(maximizePoint)), so
+    -- it MUST be set or every maximize sync calls SetPoint(nil). Mapster ships
+    -- the same pair for the same reason.
+    WorldMapFrame:SetAttribute("UIPanelLayout-defined", true)
+    WorldMapFrame:SetAttribute("UIPanelLayout-maximizePoint", "TOP")
+    if not tContains(UISpecialFrames, "WorldMapFrame") then
+        table.insert(UISpecialFrames, "WorldMapFrame")
+    end
+    -- Follow the UI scale like other windows (native ignoreParentScale only
+    -- makes sense for the full-screen layout), and never allow off-screen.
+    WorldMapFrame:SetIgnoreParentScale(false)
+    WorldMapFrame.ScrollContainer:SetIgnoreParentScale(false)
+    WorldMapFrame:SetClampedToScreen(true)
+
+    if scaleGrip then scaleGrip:Show() end
+    ApplyMapScaleValue()
+    MapFrameSizeChanged()
+    ApplyMapPosition()
+    ResetPositionIfOffScreen()
+end
+
+-- Live rollback when the option is toggled off: the frame goes back under
+-- UIPanel management with its original attributes, mode, and strata, and the
+-- maximize/minimize toggle works again (the Show hook checks db.windowedMap).
+-- The scale-corrected cursor math stays installed because it is also correct
+-- at scale 1. Fully re-settles on the next map open.
+function ZoneDetails:RestoreDefaultMap()
+    if not windowedHooked then return end
+    WorldMapFrame:SetScale(1)
+    if scaleGrip then scaleGrip:Hide() end
+    if WorldMapFrame.BlackoutFrame then
+        WorldMapFrame.BlackoutFrame:EnableMouse(true)
+    end
+    local mmf = WorldMapFrame.MaximizeMinimizeFrame
+    if mmf then mmf:Show() end
+    if savedPanel and savedPanel.strata then
+        WorldMapFrame:SetFrameStrata(savedPanel.strata)
+    end
+
+    if savedPanel then
+        WorldMapFrame:SetAttribute("UIPanelLayout-area", savedPanel.area)
+        WorldMapFrame:SetAttribute("UIPanelLayout-enabled", savedPanel.enabled)
+        WorldMapFrame:SetAttribute("UIPanelLayout-allowOtherPanels", savedPanel.allowOther)
+        WorldMapFrame:SetAttribute("UIPanelLayout-defined", savedPanel.defined)
+        WorldMapFrame:SetClampedToScreen(savedPanel.clamped)
+        if savedPanel.miniWorldMap ~= nil then
+            SetCVar("miniWorldMap", savedPanel.miniWorldMap)
+        end
+    end
+    for i = #UISpecialFrames, 1, -1 do
+        if UISpecialFrames[i] == "WorldMapFrame" then
+            table.remove(UISpecialFrames, i)
+        end
+    end
+    WorldMapFrame:SetIgnoreParentScale(not savedPanel or savedPanel.ignoreScale)
+    WorldMapFrame.ScrollContainer:SetIgnoreParentScale(not savedPanel or savedPanel.containerIgnoreScale)
+    -- Leave a sane anchor; Blizzard repositions the managed panel on next open.
+    WorldMapFrame:ClearAllPoints()
+    WorldMapFrame:SetPoint("CENTER")
+    WorldMapFrame:SetUserPlaced(false)
+    MapFrameSizeChanged()
+    -- If the map is open right now and the restored CVar wants the mini mode,
+    -- drive the transition so the frame doesn't linger maximized until reopen.
+    if WorldMapFrame:IsShown() and not InCombatLockdown()
+        and savedPanel and savedPanel.miniWorldMap == "1"
+        and WorldMapFrame:IsMaximized() and WorldMapFrame.MaximizeMinimizeFrame
+        and WorldMapFrame.MaximizeMinimizeFrame.Minimize then
+        WorldMapFrame.MaximizeMinimizeFrame:Minimize()
+    end
+end
+
+-- Combat blocked the mode transition; finish it now (see ApplyWindowedMap).
+function ZoneDetails:PLAYER_REGEN_ENABLED()
+    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    if db and db.windowedMap then
+        self:ApplyWindowedMap()
+    end
+end
+
+-- /zd map: state dump for the map-enhancement features, in a copyable window,
+-- so problems on a specific client can be diagnosed from a paste.
+function ZoneDetails:ShowMapDebug()
+    local out = {}
+    local function add(fmt, ...) out[#out + 1] = fmt:format(...) end
+    local function b(v) return v and "yes" or "no" end
+
+    add("build %s  vanilla=%s sod=%s tbc=%s wrath=%s cata=%s mop=%s",
+        tostring(tocVersion), b(isVanilla), b(isSoD), b(isTBC), b(isWrath), b(isCata), b(isMoP))
+    add("enteredWorld=%s  addon enabled=%s", b(self.enteredWorld), b(self:IsEnabled()))
+
+    local dataCount = 0
+    if type(ZoneDetails_RevealData) == "table" then
+        for _ in pairs(ZoneDetails_RevealData) do dataCount = dataCount + 1 end
+    end
+    local enumCount = 0
+    if WorldMapFrame.EnumeratePinsByTemplate then
+        for _ in WorldMapFrame:EnumeratePinsByTemplate("MapExplorationPinTemplate") do
+            enumCount = enumCount + 1
+        end
+    end
+    add("reveal: option=%s tint=%s dataMaps=%d pinsHooked=%d enumNow=%d poolHelper=%s",
+        b(db and db.revealUnexplored), b(db and db.tintUnexplored), dataCount,
+        #explorationPins, enumCount, b(TexturePool_HideAndClearAnchors ~= nil))
+
+    local mapID = WorldMapFrame:GetMapID()
+    if mapID then
+        local info = C_Map.GetMapInfo(mapID)
+        local artID = C_Map.GetMapArtID(mapID)
+        local hasEntry = artID and type(ZoneDetails_RevealData) == "table"
+            and ZoneDetails_RevealData[artID] ~= nil
+        local exploredCount = 0
+        local explored = C_MapExplorationInfo
+            and C_MapExplorationInfo.GetExploredMapTextures(mapID)
+        if explored then exploredCount = #explored end
+        local layers = C_Map.GetMapArtLayers(mapID)
+        add("current map: id=%d (%s) artID=%s dataEntry=%s explored=%d layers=%d",
+            mapID, info and info.name or "?", tostring(artID), b(hasEntry),
+            exploredCount, layers and #layers or 0)
+    else
+        add("current map: none (map not opened yet this session)")
+    end
+
+    add("windowed: option=%s hooked=%s scale=%.2f cvar miniWorldMap=%s maximized=%s",
+        b(db and db.windowedMap), b(windowedHooked), WorldMapFrame:GetScale(),
+        tostring(GetCVar("miniWorldMap")), b(WorldMapFrame:IsMaximized()))
+    add("frame: ignoreParentScale=%s clamped=%s specialFrame=%s",
+        b(WorldMapFrame:IsIgnoringParentScale()), b(WorldMapFrame:IsClampedToScreen()),
+        b(tContains(UISpecialFrames, "WorldMapFrame")))
+    add("panel attrs: area=%s enabled=%s allowOther=%s",
+        tostring(WorldMapFrame:GetAttribute("UIPanelLayout-area")),
+        tostring(WorldMapFrame:GetAttribute("UIPanelLayout-enabled")),
+        tostring(WorldMapFrame:GetAttribute("UIPanelLayout-allowOtherPanels")))
+    local a, _, r, x, y = WorldMapFrame:GetPoint()
+    add("point: %s/%s %.0f,%.0f  rect: %.0f,%.0f %.0fx%.0f",
+        tostring(a), tostring(r), x or 0, y or 0,
+        WorldMapFrame:GetLeft() or 0, WorldMapFrame:GetBottom() or 0,
+        WorldMapFrame:GetWidth() or 0, WorldMapFrame:GetHeight() or 0)
+    local mmf = WorldMapFrame.MaximizeMinimizeFrame
+    add("maxBtn: present=%s shown=%s", b(mmf and mmf.MaximizeButton),
+        b(mmf and mmf.MaximizeButton and mmf.MaximizeButton:IsShown()))
+
+    self:ShowCopyWindow("ZoneDetails Map Debug", table.concat(out, "\n"))
+end
+
+-- ============================================================================
 -- Addon Lifecycle
 -- ============================================================================
 
 function ZoneDetails:OnEnable()
     WorldMapFrame:AddDataProvider(ZoneDetailsDataProviderMixin)
     WorldMapFrame:AddDataProvider(ZoneDetailsPinDataProviderMixin)
+    -- Map-enhancement setup happens in PLAYER_ENTERING_WORLD: the exploration
+    -- pin (and parts of the map frame) don't exist yet at addon load on every
+    -- client. Only re-run here for a mid-session re-enable.
+    if self.enteredWorld then
+        self:SetupMapReveal()
+        self:RefreshReveal()
+        if db.windowedMap then
+            self:ApplyWindowedMap()
+        end
+    end
     -- Maximizing/minimizing the map resizes the canvas without firing a zone change, so
     -- the pins keep their old layout until you navigate. Re-acquire them on the mode
     -- switch so they re-render immediately for the new canvas size.
@@ -655,6 +1275,16 @@ function ZoneDetails:OnEnable()
     -- opens already maximized), leaving pins stale until a zone change. Re-acquire on the
     -- next frame after the map shows, once the canvas has settled.
     WorldMapFrame:HookScript("OnShow", function()
+        -- Self-heal: if the exploration pin didn't exist at setup time on this
+        -- client, it certainly does once the map is showing. Blizzard's own
+        -- OnShow refresh already ran before this hook, so redraw immediately —
+        -- otherwise the first map view after a late hook still shows no reveal.
+        if #explorationPins == 0 then
+            ZoneDetails:SetupMapReveal()
+            if #explorationPins > 0 then
+                ZoneDetails:RefreshReveal()
+            end
+        end
         C_Timer.After(0, function()
             if WorldMapFrame:IsShown() then
                 ZoneDetailsPinDataProviderMixin:RefreshAllData()
@@ -677,6 +1307,10 @@ end
 function ZoneDetails:OnDisable()
     WorldMapFrame:RemoveDataProvider(ZoneDetailsDataProviderMixin)
     WorldMapFrame:RemoveDataProvider(ZoneDetailsPinDataProviderMixin)
+    -- Redraw exploration overlays (the reveal hook no-ops while disabled) and
+    -- put the map window back to Blizzard defaults.
+    self:RefreshReveal()
+    self:RestoreDefaultMap()
 end
 
 function ZoneDetails:OnInitialize()
@@ -688,6 +1322,8 @@ function ZoneDetails:OnInitialize()
     local function chatCommand(input)
         if input and input:lower():match("^%s*validate%s*$") then
             ZoneDetails:ValidateData()
+        elseif input and input:lower():match("^%s*map%s*$") then
+            ZoneDetails:ShowMapDebug()
         else
             InterfaceOptionsFrame_OpenToCategory(ZoneDetails.optionsFrame)
         end
@@ -1239,6 +1875,9 @@ end
 -- load UnitLevel/UnitFactionGroup can be unset, so refresh them and repopulate
 -- the map text now that the zone information has actually loaded.
 function ZoneDetails:PLAYER_ENTERING_WORLD()
+    -- If something disabled the addon at runtime, don't undo OnDisable's restore.
+    if not self:IsEnabled() then return end
+
     playerLevel = UnitLevel("player") or playerLevel
 
     local faction = UnitFactionGroup("player")
@@ -1246,6 +1885,16 @@ function ZoneDetails:PLAYER_ENTERING_WORLD()
         isAlliance = faction == "Alliance"
         isHorde = faction == "Horde"
         isNeutral = not isAlliance and not isHorde
+    end
+
+    -- Map-enhancement setup lives here (not OnEnable): the map exploration pin
+    -- and parts of the map frame aren't ready before the world is entered on
+    -- every client (Leatrix Maps installs at this event for the same reason).
+    -- Both calls are idempotent; this event refires on every loading screen.
+    self.enteredWorld = true
+    self:SetupMapReveal()
+    if db.windowedMap then
+        self:ApplyWindowedMap()
     end
 
     self:RefreshMapText()

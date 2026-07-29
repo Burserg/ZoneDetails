@@ -1,7 +1,7 @@
-## Interface: 20505
+## Interface: 20506
 ## Title: ZoneDetails
 ## Author: Burserg
-## Version: 2.1.8
+## Version: 2.2.0
 ## Notes: Zone details overlay for the World Map
 ## OptionalDeps: LibStub, CallbackHandler-1.0
 ## SavedVariables: ZoneDetailsDB
@@ -25,6 +25,8 @@ Libs\AceLocale-3.0\AceLocale-3.0.xml
 Libs\AceDBOptions-3.0\AceDBOptions-3.0.xml
 
 Locales\locale.xml
+
+Data\Reveal_TBC.lua
 
 ZoneDetails.xml
 ZoneDetails.lua
